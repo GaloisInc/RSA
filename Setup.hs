@@ -7,7 +7,7 @@ import System.FilePath
 main :: IO ()
 main = defaultMainWithHooks rsaUserHooks
  where  
-  rsaUserHooks = defaultUserHooks { 
+  rsaUserHooks = simpleUserHooks { 
     runTests = runLMTests
   , instHook = filter_test $ instHook defaultUserHooks 
   }
