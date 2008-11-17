@@ -28,16 +28,17 @@ Library
  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
  if flag(UseBinary)
    build-depends: binary
-   GHC-Options: -DUSE_BINARY
+   CPP-Options: -DUSE_BINARY
  if flag(IncludeMD5) && flag(UseBinary)
    build-depends: pureMD5
-   GHC-Options: -DINCLUDE_MD5
+   CPP-Options: -DINCLUDE_MD5
  exposed-modules: Codec.Crypto.RSA
  extensions: CPP, BangPatterns, PatternSignatures
 
 Executable test_rsa
     build-depends: base >= 3, bytestring, QuickCheck, SHA
-  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans -DRSA_TEST
+  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
+  CPP-Options: -DRSA_TEST
   Main-Is: Test.hs
   Other-Modules: Codec.Crypto.RSA
   extensions: CPP, BangPatterns, PatternSignatures
