@@ -50,6 +50,7 @@ import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
 import Data.Int
+import Data.Word
 import System.Random
 
 #ifdef USE_BINARY
@@ -60,10 +61,6 @@ import Data.Binary.Get
 
 #ifdef INCLUDE_MD5
 import Data.Digest.Pure.MD5
-#endif
-
-#ifdef RSA_TEST
-import Data.Word
 #endif
 
 data PublicKey = PublicKey { 
