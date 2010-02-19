@@ -28,7 +28,7 @@ Flag UseBinary
   Description: Use the binary package for serializing keys.
 
 Library
- build-depends: base >= 3, bytestring, SHA, random
+ build-depends: base >= 3 && < 5, bytestring, SHA, random
  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
  if flag(UseBinary)
    build-depends: binary
@@ -37,14 +37,15 @@ Library
    build-depends: pureMD5
    CPP-Options: -DINCLUDE_MD5
  exposed-modules: Codec.Crypto.RSA
- extensions: CPP, BangPatterns, PatternSignatures
+ extensions: CPP, BangPatterns, ScopedTypeVariables
 
 Executable test_rsa
   if flag(SkipTests)
     Buildable: False
-    build-depends: base >= 3, bytestring, QuickCheck, SHA >= 1.0.1
+  else
+    build-depends: base >= 3 && < 5, bytestring, QuickCheck < 2, SHA >= 1.0.1
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
   CPP-Options: -DRSA_TEST
   Main-Is: Test.hs
   Other-Modules: Codec.Crypto.RSA
-  extensions: CPP, BangPatterns, PatternSignatures
+  extensions: CPP, BangPatterns, ScopedTypeVariables
