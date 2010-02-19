@@ -3,7 +3,6 @@ import Control.Monad
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
-import Data.Int
 import Data.Word
 import System.IO
 import System.Random
@@ -17,17 +16,28 @@ data KeyPair     = KP1K PublicKey PrivateKey
 data KeyPair2048 = KP2K PublicKey PrivateKey
  deriving (Show)
 
+getRNGSeed :: Gen StdGen
+#ifdef QUICKCHECK1
+getRNGSeed  = rand
+#else
+getRNGSeed  = fmap mkStdGen arbitrary
+#endif
+
 instance Arbitrary KeyPair where
-  arbitrary   = do g <- rand
+  arbitrary   = do g <- getRNGSeed
                    let (pub, priv, _) = generateKeyPair g 1024
                    return $ KP1K pub priv
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 instance Arbitrary KeyPair2048 where
-  arbitrary   = do g <- rand
+  arbitrary   = do g <- getRNGSeed
                    let (pub, priv, _) = generateKeyPair g 2048
                    return $ KP2K pub priv
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 -- --------------------------------------------------------------------------
 
@@ -37,10 +47,12 @@ instance Show LargePrime where
   show (LP x) = show x
 
 instance Arbitrary LargePrime where
-  arbitrary   = do g <- rand
+  arbitrary   = do g <- getRNGSeed
                    let (res, _) = large_random_prime g 64
                    return (LP res)
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 -- --------------------------------------------------------------------------
 
@@ -51,7 +63,9 @@ instance Show PositiveInteger where
 
 instance Arbitrary PositiveInteger where
   arbitrary   = (PI . (+1) . abs) `fmap` arbitrary
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 -- --------------------------------------------------------------------------
 
@@ -62,15 +76,21 @@ instance Show NonEmptyByteString where
 
 instance Arbitrary Word8 where
   arbitrary   = fromIntegral `fmap` (arbitrary::(Gen Int))
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 instance Arbitrary ByteString where
   arbitrary   = BS.pack `fmap` arbitrary
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 instance Arbitrary NonEmptyByteString where
   arbitrary   = (NEBS . BS.pack) `fmap` (return(:)`ap`arbitrary`ap`arbitrary)
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 -- --------------------------------------------------------------------------
 
@@ -87,14 +107,18 @@ instance Arbitrary EncryptionOptions where
     sha256' = bytestringDigest . sha256
     sha384' = bytestringDigest . sha384
     sha512' = bytestringDigest . sha512
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 instance Show HashInfo where
   show h = "<hash: len=" ++ (show $ BS.length $ hashFunction h BS.empty) ++ ">"
 
 instance Arbitrary HashInfo where
   arbitrary   = elements [ha_SHA1, ha_SHA256, ha_SHA384, ha_SHA512]
+#ifdef QUICKCHECK1
   coarbitrary = undefined
+#endif
 
 -- --------------------------------------------------------------------------
 

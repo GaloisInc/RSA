@@ -27,6 +27,9 @@ Flag IncludeMD5
 Flag UseBinary
   Description: Use the binary package for serializing keys.
 
+Flag QuickCheck1
+  Description: Whether this is QuickCheck 1 or not
+
 Library
  build-depends: base >= 3 && < 5, bytestring, SHA, random
  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
@@ -43,7 +46,12 @@ Executable test_rsa
   if flag(SkipTests)
     Buildable: False
   else
-    build-depends: base >= 3 && < 5, bytestring, QuickCheck < 2, SHA >= 1.0.1
+    build-depends: base >= 3 && < 5, bytestring, SHA >= 1.0.1
+  if flag(QuickCheck1)
+    build-depends: QuickCheck < 2
+    CPP-Options:   -DQUICKCHECK1
+  else
+    build-depends: QuickCheck >= 2 && < 3
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
   CPP-Options: -DRSA_TEST
   Main-Is: Test.hs
