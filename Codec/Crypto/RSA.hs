@@ -506,9 +506,14 @@ sha256' = bytestringDigest . sha256
 -- "i2osp converts a nonnegative integer to an octet string of a specified
 -- length" -- RFC 3447
 i2osp :: Integral a => a -> Int64 -> ByteString
-i2osp x len | x >= (256 ^ len) = error "RSA internal error: integer too large"
-            | otherwise = padding `BS.append` digits
+i2osp x len | isTooLarge = error "RSA internal error: integer too large"
+            | otherwise  = padding `BS.append` digits
  where
+  isTooLarge = xAsInt >= (256 ^ lenAsInt)
+  xAsInt, lenAsInt :: Integer
+  xAsInt     = fromIntegral x
+  lenAsInt   = fromIntegral len
+  --
   padding = BS.replicate (len - BS.length digits) 0
   digits = BS.pack $ reverse $ digits256 x
   digits256 v 
