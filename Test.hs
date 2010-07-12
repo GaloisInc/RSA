@@ -4,9 +4,15 @@ import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
 import Data.Word
-import System.IO
 import System.Random
 import Test.QuickCheck
+
+import Test.Framework (defaultMain, testGroup, Test)
+#ifdef QUICKCHECK1
+import Test.Framework.Providers.QuickCheck (testProperty)
+#else
+import Test.Framework.Providers.QuickCheck2 (testProperty)
+#endif
 
 -- --------------------------------------------------------------------------
 
@@ -208,31 +214,36 @@ prop_encrypt_plus_inverts g opts (KP2K pub priv) (NEBS m) =
 
 -- --------------------------------------------------------------------------
 
-run_test :: Testable a => String -> a -> IO ()
-run_test n t = putStr ("  " ++ n ++ " ... ") >> hFlush stdout >> quickCheck t
-
 main :: IO ()
 main = do
-  g <- getStdGen
   putStrLn "\nWARNING WARNING WARNING"
   putStrLn "This test suite takes a very long time to run. If you're in a "
   putStrLn "hurry, Control-C is your friend."
-  putStrLn "WARNING WARNING WARNING"
-  putStrLn "\nTesting basic helper functions"
-  run_test "prop_chunkify_works"         prop_chunkify_works
-  run_test "prop_mod_exp_works"          prop_mod_exp_works
-  run_test "prop_mod_inv_works"          prop_mod_inv_works
-  putStrLn "\nTesting RSA core functions"
-  run_test "prop_i2o2i_identity"         prop_i2o2i_identity
-  run_test "prop_o2i2o_identity"         prop_o2i2o_identity
-  run_test "prop_ep_dp_identity"         prop_ep_dp_identity
-  run_test "prop_sp_vp_identity"         prop_sp_vp_identity
-  putStrLn "\nTesting fixed-width RSA padding functions:"
-  run_test "prop_oaep_inverts"           prop_oaep_inverts
-  run_test "prop_pkcs_inverts"         $ prop_pkcs_inverts         g
-  run_test "prop_sign_works"             prop_sign_works
-  putStrLn "\nTesting top-level functions work:"
-  run_test "prop_encrypt_inverts"      $ prop_encrypt_inverts      g
-  run_test "prop_encrypt_plus_inverts" $ prop_encrypt_plus_inverts g
+  putStrLn "WARNING WARNING WARNING\n"
 
+  g <- getStdGen
+  defaultMain $ tests g
 
+tests :: StdGen -> [Test]
+tests g = [
+  testGroup "Testing basic helper functions" [
+     testProperty "prop_chunkify_works"         prop_chunkify_works,
+     testProperty "prop_mod_exp_works"          prop_mod_exp_works,
+     testProperty "prop_mod_inv_works"          prop_mod_inv_works
+     ],
+  testGroup "Testing RSA core functions" [
+    testProperty "prop_i2o2i_identity"         prop_i2o2i_identity,
+    testProperty "prop_o2i2o_identity"         prop_o2i2o_identity,
+    testProperty "prop_ep_dp_identity"         prop_ep_dp_identity,
+    testProperty "prop_sp_vp_identity"         prop_sp_vp_identity
+    ],
+  testGroup "Testing fixed-width RSA padding functions" [
+    testProperty "prop_oaep_inverts"           prop_oaep_inverts,
+    testProperty "prop_pkcs_inverts"         $ prop_pkcs_inverts g,
+    testProperty "prop_sign_works"             prop_sign_works
+    ],
+  testGroup "Testing top-level functions" [
+    testProperty "prop_encrypt_inverts"      $ prop_encrypt_inverts      g,
+    testProperty "prop_encrypt_plus_inverts" $ prop_encrypt_plus_inverts g
+    ]
+  ]

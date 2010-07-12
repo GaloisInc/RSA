@@ -46,12 +46,12 @@ Executable test_rsa
   if flag(SkipTests)
     Buildable: False
   else
-    build-depends: base >= 3 && < 5, bytestring, SHA >= 1.0.1
+    build-depends: base >= 3 && < 5, bytestring, SHA >= 1.0.1, test-framework >= 0.3 && < 0.4
   if flag(QuickCheck1)
-    build-depends: QuickCheck < 2
+    build-depends: QuickCheck < 2, test-framework-quickcheck >= 0.2.6 && < 0.3
     CPP-Options:   -DQUICKCHECK1
   else
-    build-depends: QuickCheck >= 2 && < 3
+    build-depends: QuickCheck >= 2 && < 3, test-framework-quickcheck2 >= 0.2.7 && < 0.3
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
   CPP-Options: -DRSA_TEST
   Main-Is: Test.hs
