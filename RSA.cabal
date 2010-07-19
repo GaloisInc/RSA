@@ -30,14 +30,25 @@ Flag UseBinary
 Flag QuickCheck1
   Description: Whether this is QuickCheck 1 or not
 
+Flag OldBase
+  Description: Whether or not to use base 3 (default: no)
+  Default: False
+
 Library
- build-depends: base >= 3 && < 5, bytestring, SHA, random
- GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
+ build-depends: bytestring, SHA, random
+ GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans
+ if flag(OldBase)
+   build-depends: base >= 3 && < 4
+ else
+   build-depends: base >= 4 && < 5
  if flag(UseBinary)
    build-depends: binary
    CPP-Options: -DUSE_BINARY
  if flag(IncludeMD5) && flag(UseBinary)
-   build-depends: pureMD5
+   if flag(OldBase)
+      build-depends: pureMD5 < 1.1
+   else
+      build-depends: pureMD5
    CPP-Options: -DINCLUDE_MD5
  exposed-modules: Codec.Crypto.RSA
  extensions: CPP, BangPatterns, ScopedTypeVariables
