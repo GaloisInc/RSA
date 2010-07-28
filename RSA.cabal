@@ -1,6 +1,6 @@
 name:       RSA
 category:   Cryptography, Codec
-version:    1.0.4
+version:    1.0.5
 license:    BSD3
 license-file: LICENSE
 author:     Adam Wick <awick@galois.com>
@@ -29,6 +29,7 @@ Flag UseBinary
 
 Flag QuickCheck1
   Description: Whether this is QuickCheck 1 or not
+  Default:     False
 
 Flag OldBase
   Description: Whether or not to use base 3 (default: no)
