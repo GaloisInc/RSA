@@ -1,6 +1,6 @@
 name:       RSA
 category:   Cryptography, Codec
-version:    1.0.6
+version:    1.0.6.1
 license:    BSD3
 license-file: LICENSE
 author:     Adam Wick <awick@galois.com>
@@ -35,6 +35,10 @@ Flag OldBase
   Description: Whether or not to use base 3 (default: no)
   Default: False
 
+Flag HasArbitraryWord8
+  Description: Whether or not Arbitrary Word8 is defined by QuickCheck
+  Default: False
+
 Library
  build-depends: bytestring, random
  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans
@@ -67,7 +71,12 @@ Executable test_rsa
       build-depends: QuickCheck < 2, test-framework-quickcheck >= 0.2.6 && < 0.3
       CPP-Options:   -DQUICKCHECK1
     else
-      build-depends: QuickCheck >= 2 && < 3, test-framework-quickcheck2 >= 0.2.7 && < 0.3
+      build-depends: test-framework-quickcheck2 >= 0.2.7 && < 0.3
+      if flag(HasArbitraryWord8)
+        build-depends: QuickCheck >= 2.1.2 && < 3
+        CPP-Options: -DQUICKCHECK_DEFINES_ARBITRARY_WORD8
+      else
+        build-depends: QuickCheck >= 2 && < 2.1.2
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
   CPP-Options: -DRSA_TEST
   Main-Is: Test.hs

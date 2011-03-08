@@ -80,10 +80,12 @@ newtype NonEmptyByteString = NEBS ByteString
 instance Show NonEmptyByteString where
   show (NEBS x) = show x
 
+#ifndef QUICKCHECK_DEFINES_ARBITRARY_WORD8
 instance Arbitrary Word8 where
   arbitrary   = fromIntegral `fmap` (arbitrary::(Gen Int))
-#ifdef QUICKCHECK1
+# ifdef QUICKCHECK1
   coarbitrary = undefined
+# endif
 #endif
 
 instance Arbitrary ByteString where
