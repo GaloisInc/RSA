@@ -17,9 +17,9 @@ description: This library implements the RSA encryption and signature
              included are based of RFC 3447, or the Public-Key Cryptography
              Standard for RSA, version 2.1 (a.k.a, PKCS#1 v2.1).   
 
-Flag SkipTests
-  Default:     True
-  Description: Skip building the test program
+Flag test
+  Default:     False
+  Description: Building the test program
 
 Flag IncludeMD5
   Description: Include support for using MD5 in the various crypto routines.
@@ -27,16 +27,8 @@ Flag IncludeMD5
 Flag UseBinary
   Description: Use the binary package for serializing keys.
 
-Flag QuickCheck1
-  Description: Whether this is QuickCheck 1 or not
-  Default:     False
-
 Flag OldBase
   Description: Whether or not to use base 3 (default: no)
-  Default: False
-
-Flag HasArbitraryWord8
-  Description: Whether or not Arbitrary Word8 is defined by QuickCheck
   Default: False
 
 Library
@@ -59,24 +51,15 @@ Library
  extensions: CPP, BangPatterns, ScopedTypeVariables
 
 Executable test_rsa
-  if flag(SkipTests)
-    Buildable: False
-  else
+  if flag(test)
     if flag(OldBase)
       build-depends: base >= 3 && < 4, SHA < 1.4.1
     else
       build-depends: base >= 4 && < 5, SHA
-    build-depends: bytestring, test-framework >= 0.3 && < 0.4
-    if flag(QuickCheck1)
-      build-depends: QuickCheck < 2, test-framework-quickcheck >= 0.2.6 && < 0.3
-      CPP-Options:   -DQUICKCHECK1
-    else
-      build-depends: test-framework-quickcheck2 >= 0.2.7 && < 0.3
-      if flag(HasArbitraryWord8)
-        build-depends: QuickCheck >= 2.1.2 && < 3
-        CPP-Options: -DQUICKCHECK_DEFINES_ARBITRARY_WORD8
-      else
-        build-depends: QuickCheck >= 2 && < 2.1.2
+    build-depends: bytestring, test-framework >= 0.3 && < 0.4,
+                   QuickCheck == 2.*, test-framework-quickcheck2 == 0.2.*
+  else
+    Buildable: False
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
   CPP-Options: -DRSA_TEST
   Main-Is: Test.hs
