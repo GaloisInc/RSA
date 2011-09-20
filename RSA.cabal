@@ -57,7 +57,8 @@ Executable test_rsa
     else
       build-depends: base >= 4 && < 5, SHA
     build-depends: bytestring, test-framework >= 0.3 && < 0.4,
-                   QuickCheck == 2.*, test-framework-quickcheck2 == 0.2.*
+                   QuickCheck >= 2 && < 3,
+                   test-framework-quickcheck2 >= 0.2 && < 0.3
   else
     Buildable: False
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
