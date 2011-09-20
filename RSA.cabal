@@ -7,7 +7,7 @@ author:     Adam Wick <awick@galois.com>
 maintainer: Adam Wick <awick@galois.com>
 stability:  stable
 build-type: Simple
-cabal-version: >= 1.2
+cabal-version: >= 1.6
 tested-with: GHC ==6.8.0
 synopsis: Implementation of RSA, using the padding schemes of PKCS#1 v2.1.
 description: This library implements the RSA encryption and signature 
