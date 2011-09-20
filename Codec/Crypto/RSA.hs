@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- |An implementation of RSA (PKCS #1) Cryptography, as described by the
 -- RSA standard and RFC 3447.
 module Codec.Crypto.RSA(
@@ -574,12 +576,14 @@ chunkify len bstr
   | BS.length bstr <= len = [bstr]
   | otherwise             = (BS.take len bstr):(chunkify len $ BS.drop len bstr)
  
+#if !MIN_VERSION_random(1,0,1)
 instance Random Word8 where
   randomR (a,b) g = let aI::Int = fromIntegral a 
                         bI::Int = fromIntegral b
                         (x, g') = randomR (aI, bI) g
                     in (fromIntegral x, g')
   random          = randomR (minBound, maxBound)
+#endif
 
 generate_random_bytestring :: RandomGen g => g -> Int64 -> (ByteString, g)
 generate_random_bytestring g 0 = (BS.empty, g)
