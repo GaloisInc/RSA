@@ -32,7 +32,7 @@ Flag OldBase
   Default: False
 
 Library
- build-depends: bytestring, random
+ build-depends: bytestring, crypto-api >= 0.10, monadcryptorandom
  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans
  if flag(OldBase)
    build-depends: base >= 3 && < 4, SHA < 1.4.1
@@ -56,9 +56,10 @@ Executable test_rsa
       build-depends: base >= 3 && < 4, SHA < 1.4.1
     else
       build-depends: base >= 4 && < 5, SHA
-    build-depends: bytestring, test-framework >= 0.3 && < 0.4,
+    build-depends: bytestring, test-framework >= 0.3 && < 0.7,
                    QuickCheck >= 2 && < 3,
-                   test-framework-quickcheck2 >= 0.2 && < 0.3
+                   test-framework-quickcheck2 >= 0.2 && < 0.7,
+                   intel-aes
   else
     Buildable: False
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
