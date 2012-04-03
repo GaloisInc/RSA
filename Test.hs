@@ -1,14 +1,33 @@
+{-# LANGUAGE FlexibleInstances #-}
 import Codec.Crypto.RSA
 import Control.Monad
+import Data.ByteString(pack)
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
+import Data.Tagged
 import Test.QuickCheck
 import Crypto.Random
-import System.Random.AES (mkAESGenCRG, AesCRG)
+import Crypto.Random.DRBG
+import Crypto.Types
 
 import Test.Framework (defaultMain, testGroup, Test)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
+
+-- --------------------------------------------------------------------------
+
+buildGen :: Gen (GenAutoReseed HashDRBG HashDRBG)
+buildGen = do
+  let len = genSeedLength :: Tagged (GenAutoReseed HashDRBG HashDRBG) ByteLength
+  bytes <- pack `fmap` replicateM (unTagged len) arbitrary
+  let Right seed = newGen bytes
+  return seed
+
+instance Show (GenAutoReseed HashDRBG HashDRBG) where
+  show _ = "<randomGen>"
+
+instance Arbitrary (GenAutoReseed HashDRBG HashDRBG) where
+  arbitrary = buildGen
 
 -- --------------------------------------------------------------------------
 
@@ -18,16 +37,13 @@ data KeyPair     = KP1K PublicKey PrivateKey
 data KeyPair2048 = KP2K PublicKey PrivateKey
  deriving (Show)
 
-getRNGSeed :: Gen AesCRG
-getRNGSeed = fmap mkAESGenCRG arbitrary
-
 instance Arbitrary KeyPair where
-  arbitrary   = do g <- getRNGSeed
+  arbitrary   = do g <- buildGen
                    let (pub, priv, _) = generateKeyPair g 1024
                    return $ KP1K pub priv
 
 instance Arbitrary KeyPair2048 where
-  arbitrary   = do g <- getRNGSeed
+  arbitrary   = do g <- buildGen
                    let (pub, priv, _) = generateKeyPair g 2048
                    return $ KP2K pub priv
 
@@ -39,7 +55,7 @@ instance Show LargePrime where
   show (LP x) = show x
 
 instance Arbitrary LargePrime where
-  arbitrary   = do g <- getRNGSeed
+  arbitrary   = do g <- buildGen
                    let (res, _) = large_random_prime g 64
                    return (LP res)
 
@@ -134,18 +150,19 @@ prop_sp_vp_identity (KP1K pub priv) (PI x) = m == m'
 
 -- --------------------------------------------------------------------------
 
-prop_oaep_inverts :: HashInfo -> KeyPair2048 -> PositiveInteger ->
+prop_oaep_inverts :: GenAutoReseed HashDRBG HashDRBG ->
+                     HashInfo -> KeyPair2048 -> PositiveInteger ->
                      ByteString -> NonEmptyByteString -> 
                      Bool
-prop_oaep_inverts hi (KP2K pub priv) (PI seed) l (NEBS x) = m == m'
+prop_oaep_inverts g hi (KP2K pub priv) (PI seed) l (NEBS x) = m == m'
  where
-  hash = hashFunction hi
-  kLen = public_size pub
-  hLen = BS.length $ hash BS.empty
-  mgf  = generate_MGF1 hash
-  m    = BS.take (kLen - (2 * hLen) - 2) x
-  c    = rsaes_oaep_encrypt hash mgf pub  seed l m
-  m'   = rsaes_oaep_decrypt hash mgf priv      l c
+  hash  = hashFunction hi
+  kLen  = public_size pub
+  hLen  = BS.length $ hash BS.empty
+  mgf   = generate_MGF1 hash
+  m     = BS.take (kLen - (2 * hLen) - 2) x
+  (c,_) = rsaes_oaep_encrypt g hash mgf pub  l m
+  m'    = rsaes_oaep_decrypt   hash mgf priv l c
 
 prop_pkcs_inverts :: CryptoRandomGen g => g -> KeyPair -> NonEmptyByteString -> Bool
 prop_pkcs_inverts g (KP1K pub priv) (NEBS x) = m == m'

@@ -59,7 +59,8 @@ Executable test_rsa
     build-depends: bytestring, test-framework >= 0.3 && < 0.7,
                    QuickCheck >= 2 && < 3,
                    test-framework-quickcheck2 >= 0.2 && < 0.7,
-                   intel-aes
+                   DRBG >= 0.2.3 && < 0.4,
+                   tagged >= 0.2.3 && < 0.4
   else
     Buildable: False
   GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans 
