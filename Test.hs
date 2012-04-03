@@ -3,9 +3,9 @@ import Control.Monad
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
-import Data.Word
-import System.Random
 import Test.QuickCheck
+import Crypto.Random
+import System.Random.AES (mkAESGenCRG, AesCRG)
 
 import Test.Framework (defaultMain, testGroup, Test)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
@@ -18,8 +18,8 @@ data KeyPair     = KP1K PublicKey PrivateKey
 data KeyPair2048 = KP2K PublicKey PrivateKey
  deriving (Show)
 
-getRNGSeed :: Gen StdGen
-getRNGSeed  = fmap mkStdGen arbitrary
+getRNGSeed :: Gen AesCRG
+getRNGSeed = fmap mkAESGenCRG arbitrary
 
 instance Arbitrary KeyPair where
   arbitrary   = do g <- getRNGSeed
@@ -134,7 +134,7 @@ prop_sp_vp_identity (KP1K pub priv) (PI x) = m == m'
 
 -- --------------------------------------------------------------------------
 
-prop_oaep_inverts :: HashInfo -> KeyPair2048 -> PositiveInteger -> 
+prop_oaep_inverts :: HashInfo -> KeyPair2048 -> PositiveInteger ->
                      ByteString -> NonEmptyByteString -> 
                      Bool
 prop_oaep_inverts hi (KP2K pub priv) (PI seed) l (NEBS x) = m == m'
@@ -147,7 +147,7 @@ prop_oaep_inverts hi (KP2K pub priv) (PI seed) l (NEBS x) = m == m'
   c    = rsaes_oaep_encrypt hash mgf pub  seed l m
   m'   = rsaes_oaep_decrypt hash mgf priv      l c
 
-prop_pkcs_inverts :: RandomGen g => g -> KeyPair -> NonEmptyByteString -> Bool
+prop_pkcs_inverts :: CryptoRandomGen g => g -> KeyPair -> NonEmptyByteString -> Bool
 prop_pkcs_inverts g (KP1K pub priv) (NEBS x) = m == m'
  where
   kLen  = public_size pub
@@ -161,13 +161,13 @@ prop_sign_works hi (KP1K pub priv) (NEBS m) =
 
 -- --------------------------------------------------------------------------
 
-prop_encrypt_inverts :: RandomGen g => 
+prop_encrypt_inverts :: CryptoRandomGen g => 
                         g -> KeyPair2048 -> NonEmptyByteString -> 
                         Bool
 prop_encrypt_inverts g (KP2K pub priv) (NEBS m) =
   m == decrypt priv (fst $ encrypt g pub m)
 
-prop_encrypt_plus_inverts :: RandomGen g =>
+prop_encrypt_plus_inverts :: CryptoRandomGen g =>
                              g -> EncryptionOptions -> KeyPair2048 -> 
                              NonEmptyByteString ->
                              Bool
@@ -183,10 +183,10 @@ main = do
   putStrLn "hurry, Control-C is your friend."
   putStrLn "WARNING WARNING WARNING\n"
 
-  g <- getStdGen
+  g <- newGenIO :: IO SystemRandom
   defaultMain $ tests g
 
-tests :: StdGen -> [Test]
+tests :: SystemRandom -> [Test]
 tests g = [
   testGroup "Testing basic helper functions" [
      testProperty "prop_chunkify_works"         prop_chunkify_works,
