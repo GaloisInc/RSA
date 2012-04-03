@@ -53,7 +53,8 @@ import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
 import Data.Int
 import Data.Word
-import System.Random
+import Crypto.Random
+import Control.Monad.CryptoRandom
 
 #ifdef USE_BINARY
 import Data.Binary
@@ -119,8 +120,8 @@ type MGF          = ByteString -> Int64 -> ByteString
 -- |Randomly generate a key pair of the given modulus length (in bits) to
 -- use in any of the following functions. Use of a good random number 
 -- generator is of considerable importance when using this function; the 
--- input RandomGen should never be used again for any other purpose.
-generateKeyPair :: RandomGen g => g -> Int -> (PublicKey, PrivateKey, g)
+-- input CryptoRandomGen should never be used again for any other purpose.
+generateKeyPair :: CryptoRandomGen g => g -> Int -> (PublicKey, PrivateKey, g)
 generateKeyPair g sizeBits = (PublicKey kLen n e, PrivateKey kLen n d, g')
  where
   kLen       = fromIntegral $ sizeBits `div` 8
@@ -151,7 +152,7 @@ instance Show EncryptionOptions where
 -- function, and not adding a label). If the message is longer than the 
 -- underlying encryption function can support, it is broken up into parts
 -- and each part is encrypted.
-encrypt :: RandomGen g => g -> PublicKey -> ByteString -> (ByteString, g)
+encrypt :: CryptoRandomGen g => g -> PublicKey -> ByteString -> (ByteString, g)
 encrypt = encrypt' (UseOAEP sha256' (generate_MGF1 sha256') BS.empty)
 
 -- |Decrypt an arbitrarily-sized message using the defaults for RSA
@@ -182,7 +183,7 @@ verify :: PublicKey -> ByteString -> ByteString -> Bool
 verify = rsassa_pkcs1_v1_5_verify ha_SHA256
 
 -- |Encrypt an arbitrarily-sized message using the given options.
-encrypt' :: RandomGen g => 
+encrypt' :: CryptoRandomGen g => 
             EncryptionOptions -> g -> PublicKey -> ByteString -> 
             (ByteString, g)
 encrypt' (UseOAEP hash mgf l) gen pub m = foldl enc1 (BS.empty, gen) chunks
@@ -190,8 +191,7 @@ encrypt' (UseOAEP hash mgf l) gen pub m = foldl enc1 (BS.empty, gen) chunks
   hLen              = BS.length $ hash BS.empty
   chunkSize         = public_size pub - (2 * hLen) - 2
   chunks            = chunkify chunkSize m
-  enc1 (!res, !g) !cur = let (seed, g') = random g
-                             !newc = rsaes_oaep_encrypt hash mgf pub seed l cur
+  enc1 (!res, !g) !cur = let !(!newc,!g') = rsaes_oaep_encrypt g hash mgf pub l cur
                          in (res `BS.append` newc, g')
 encrypt' UsePKCS1_v1_5        gen pub m = foldl enc1 (BS.empty, gen) chunks
  where
@@ -234,17 +234,18 @@ decrypt' opts priv cipher = BS.concat $ map decryptor chunks
 -- I have not put in a check for the length of the label, because I don't
 -- expect you to use more than 2^32 bytes. So don't make me regret that, eh?
 --
-rsaes_oaep_encrypt :: HashFunction -> MGF -> 
-                      PublicKey -> Integer -> ByteString -> ByteString ->
-                      ByteString
-rsaes_oaep_encrypt hash mgf k seed_int l m
+rsaes_oaep_encrypt :: CryptoRandomGen g => g -> HashFunction -> MGF -> 
+                      PublicKey -> ByteString -> ByteString ->
+                      (ByteString,g)
+rsaes_oaep_encrypt g hash mgf k l m
   | message_too_long = error "message too long (rsaes_oaep_encrypt)"
-  | otherwise        = c
+  | otherwise        = (c,g')
  where
   mLen = BS.length m -- Int64
   hLen = BS.length $ hash BS.empty -- Int64
   kLen = public_size k
-  seed = i2osp seed_int hLen
+  (seedStrict,g') = throwLeft $ genBytes (fromIntegral hLen) g
+  seed = BS.fromChunks [seedStrict]
   -- Step 1
   message_too_long = mLen > (kLen - (2 * hLen) - 2)
   -- Step 2
@@ -332,7 +333,7 @@ rsaes_oaep_decrypt hash mgf k l c
 -- randomness, and (b) choose a decent instance of RandomGen for passing to
 -- this function.
 --
-rsaes_pkcs1_v1_5_encrypt :: RandomGen g => 
+rsaes_pkcs1_v1_5_encrypt :: CryptoRandomGen g => 
                             g -> PublicKey -> ByteString -> 
                             (ByteString, g)
 rsaes_pkcs1_v1_5_encrypt rGen k m 
@@ -576,21 +577,12 @@ chunkify len bstr
   | BS.length bstr <= len = [bstr]
   | otherwise             = (BS.take len bstr):(chunkify len $ BS.drop len bstr)
  
-#if !MIN_VERSION_random(1,0,1)
-instance Random Word8 where
-  randomR (a,b) g = let aI::Int = fromIntegral a 
-                        bI::Int = fromIntegral b
-                        (x, g') = randomR (aI, bI) g
-                    in (fromIntegral x, g')
-  random          = randomR (minBound, maxBound)
-#endif
-
-generate_random_bytestring :: RandomGen g => g -> Int64 -> (ByteString, g)
+generate_random_bytestring :: CryptoRandomGen g => g -> Int64 -> (ByteString, g)
 generate_random_bytestring g 0 = (BS.empty, g)
 generate_random_bytestring g x = (BS.cons' first rest, g'')
  where
   (rest, g')   = generate_random_bytestring g (x - 1)
-  (first, g'') = randomR (1,255) g' 
+  (first, g'') = throwLeft $ crandomR (1,255) g'
 
 -- Divide a by b, rounding towards positive infinity.
 divCeil :: Integral a => a -> a -> a
@@ -600,7 +592,7 @@ divCeil a b =
 
 -- Generate p and q. This is not necessarily the best way to do this, but the
 -- ANSI standard dealing with this cost money, and I was in a hurry.
-generate_pq :: RandomGen g => g -> Int64 -> (Integer, Integer, g)
+generate_pq :: CryptoRandomGen g => g -> Int64 -> (Integer, Integer, g)
 generate_pq g len 
   | len < 2   = error "length to short for generate_pq"
   | p == q    = generate_pq g'' len
@@ -610,7 +602,7 @@ generate_pq g len
   (baseQ, g'') = large_random_prime g' (len - (len `div` 2))
   (p, q)       = if baseP < baseQ then (baseQ, baseP) else (baseP, baseQ)
 
-large_random_prime :: RandomGen g => g -> Int64 -> (Integer, g)
+large_random_prime :: CryptoRandomGen g => g -> Int64 -> (Integer, g)
 large_random_prime g len = (prime, g''')
  where
   ([startH, startT], g') = random8s g 2
@@ -619,14 +611,14 @@ large_random_prime g len = (prime, g''')
   start                  = os2ip $ BS.pack start_ls
   (prime, g''')          = find_next_prime g'' start 
   
-random8s :: RandomGen g => g -> Int64 -> ([Word8], g)
+random8s :: CryptoRandomGen g => g -> Int64 -> ([Word8], g)
 random8s g 0 = ([], g)
 random8s g x = 
   let (rest, g') = random8s g (x - 1)
-      (next8, g'') = random g'
+      (next8, g'') = throwLeft (crandom g')
   in (next8:rest, g'')
 
-find_next_prime :: RandomGen g => g -> Integer -> (Integer, g)
+find_next_prime :: CryptoRandomGen g => g -> Integer -> (Integer, g)
 find_next_prime g n
   | even n             = error "Even number sent to find_next_prime"
   | n `mod` 65537 == 1 = find_next_prime g (n + 2)
@@ -635,7 +627,7 @@ find_next_prime g n
  where
   (got_a_prime, g') = is_probably_prime g n
 
-is_probably_prime :: RandomGen g => g -> Integer -> (Bool, g)
+is_probably_prime :: CryptoRandomGen g => g -> Integer -> (Bool, g)
 is_probably_prime !g !n 
   | any (\ x -> n `mod` x == 0) small_primes = (False, g)
   | otherwise                                = miller_rabin g n 20
@@ -658,12 +650,12 @@ is_probably_prime !g !n
                    877,  881,  883,  887,  907,  911,  919,  929,  937,  941,
                    947,  953,  967,  971,  977,  983,  991,  997, 1009, 1013  ]
 
-miller_rabin :: RandomGen g => g -> Integer -> Int -> (Bool, g)
+miller_rabin :: CryptoRandomGen g => g -> Integer -> Int -> (Bool, g)
 miller_rabin g _ 0             = (True, g)
 miller_rabin g n k | test a n  = (False, g')
                    | otherwise = miller_rabin g' n (k - 1)
  where
-  (a, g') = randomR (2, n - 2) g
+  (a, g') = throwLeft (crandomR (2, n - 2) g)
   base_b = tail $ reverse $ toBinary (n - 1) 
   -- 
   test a' n' = pow base_b a
