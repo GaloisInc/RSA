@@ -67,14 +67,14 @@ import Data.Digest.Pure.MD5
 #endif
 
 data PublicKey = PublicKey { 
-    public_size :: Int64   -- ^The size of the RSA modulus, in bytes.
+    public_size :: Int     -- ^The size of the RSA modulus, in bytes.
   , public_n    :: Integer -- ^The RSA modulus.
   , public_e    :: Integer -- ^The public exponent.
   }
  deriving (Show)
 
 data PrivateKey = PrivateKey {
-    private_size :: Int64   -- ^The size of the RSA modulus, in bytes.
+    private_size :: Int     -- ^The size of the RSA modulus, in bytes.
   , private_n    :: Integer -- ^The RSA modulus.
   , private_d    :: Integer -- ^The private exponent.
   }
@@ -86,7 +86,7 @@ instance Binary PublicKey where
               putLazyByteString $ i2osp (public_n pk)    (public_size pk)
   get    = do len <- (fromIntegral . os2ip) `fmap` getLazyByteString 8
               n   <- os2ip `fmap` getLazyByteString len
-              return $ PublicKey len n 65537 
+              return $ PublicKey (fromIntegral len) n 65537
 
 instance Binary PrivateKey where
   put pk = do putLazyByteString $ i2osp (private_size pk) 8
@@ -95,7 +95,7 @@ instance Binary PrivateKey where
   get    = do len <- (fromIntegral . os2ip) `fmap` getLazyByteString 8
               n   <- os2ip `fmap` getLazyByteString len
               d   <- os2ip `fmap` getLazyByteString len
-              return $ PrivateKey len n d            
+              return $ PrivateKey (fromIntegral len) n d
 #endif
 
 type HashFunction = ByteString -> ByteString
@@ -189,14 +189,14 @@ encrypt' :: CryptoRandomGen g =>
 encrypt' (UseOAEP hash mgf l) gen pub m = foldl enc1 (BS.empty, gen) chunks
  where
   hLen              = BS.length $ hash BS.empty
-  chunkSize         = public_size pub - (2 * hLen) - 2
+  chunkSize         = (fromIntegral $ public_size pub) - (2 * hLen) - 2
   chunks            = chunkify chunkSize m
   enc1 (!res, !g) !cur = let !(!newc,!g') = rsaes_oaep_encrypt g hash mgf pub l cur
                          in (res `BS.append` newc, g')
 encrypt' UsePKCS1_v1_5        gen pub m = foldl enc1 (BS.empty, gen) chunks
  where
   chunkSize         = public_size pub - 11
-  chunks            = chunkify chunkSize m
+  chunks            = chunkify (fromIntegral chunkSize) m
   enc1 (!res, !g) !cur = let (!newc, g')=rsaes_pkcs1_v1_5_encrypt g pub cur
                          in (res `BS.append` newc, g')
 
@@ -206,7 +206,7 @@ encrypt' UsePKCS1_v1_5        gen pub m = foldl enc1 (BS.empty, gen) chunks
 decrypt' :: EncryptionOptions -> PrivateKey -> ByteString -> ByteString
 decrypt' opts priv cipher = BS.concat $ map decryptor chunks
  where
-  chunks = chunkify (private_size priv) cipher
+  chunks = chunkify (fromIntegral $ private_size priv) cipher
   decryptor = case opts of
                 UseOAEP hash mgf l -> rsaes_oaep_decrypt hash mgf priv l
                 UsePKCS1_v1_5      -> rsaes_pkcs1_v1_5_decrypt priv
@@ -243,7 +243,7 @@ rsaes_oaep_encrypt g hash mgf k l m
  where
   mLen = BS.length m -- Int64
   hLen = BS.length $ hash BS.empty -- Int64
-  kLen = public_size k
+  kLen = fromIntegral $ public_size k
   (seedStrict,g') = throwLeft $ genBytes (fromIntegral hLen) g
   seed = BS.fromChunks [seedStrict]
   -- Step 1
@@ -260,7 +260,7 @@ rsaes_oaep_encrypt g hash mgf k l m
   -- Step 3
   m_ip       = os2ip em
   c_ip       = rsa_ep (public_n k) (public_e k) m_ip
-  c          = i2osp c_ip kLen
+  c          = i2osp c_ip (fromIntegral kLen)
 
 -- |The generalized implementation of RSAES-OAEP-DECRYPT. Again, 'decrypt'
 -- initializes this with a pretty good set of defaults if you don't understand
@@ -295,8 +295,8 @@ rsaes_oaep_decrypt hash mgf k l c
   hLen = BS.length $ hash BS.empty
   kLen = private_size k
   -- Step 1
-  bad_message_len = BS.length c /= kLen
-  bad_hash_len    = kLen < ((2 * hLen) + 2)
+  bad_message_len = BS.length c /= fromIntegral kLen
+  bad_hash_len    = fromIntegral kLen < ((2 * hLen) + 2)
   -- Step 2
   c_ip            = os2ip c
   m_ip            = rsa_dp (private_n k) (private_d k) c_ip
@@ -307,7 +307,7 @@ rsaes_oaep_decrypt hash mgf k l c
   (maskedSeed, maskedDB) = BS.splitAt hLen msandmdb
   seedMask               = mgf maskedDB hLen
   seed                   = maskedSeed `xorBS` seedMask
-  dbMask                 = mgf seed (kLen - hLen - 1)
+  dbMask                 = mgf seed (fromIntegral kLen - hLen - 1)
   db                     = maskedDB `xorBS` dbMask
   (lHash', ps1m)         = BS.splitAt hLen db
   one_m                  = BS.dropWhile (== 0) ps1m
@@ -340,7 +340,7 @@ rsaes_pkcs1_v1_5_encrypt rGen k m
   | message_too_long = error "message too long"
   | otherwise        = (c, rGen')
  where
-  mLen = BS.length m
+  mLen = fromIntegral $ BS.length m
   kLen = public_size k
   -- Step 1
   message_too_long = mLen > (kLen - 11)
@@ -366,7 +366,7 @@ rsaes_pkcs1_v1_5_decrypt k c
   | signal_error = error "decryption error"
   | otherwise    = m
  where
-  mLen = BS.length c
+  mLen = fromIntegral $ BS.length c
   kLen = private_size k
   -- Step 1
   wrong_size = mLen /= kLen
@@ -420,7 +420,7 @@ rsassa_pkcs1_v1_5_verify hi k m s
  where
   kLen = public_size k
   -- Step 1
-  bad_size = BS.length s /= kLen
+  bad_size = BS.length s /= fromIntegral kLen
   -- Step 2
   s_i = os2ip s
   m_i = rsa_vp1 (public_n k) (public_e k) s_i
@@ -439,8 +439,8 @@ rsassa_pkcs1_v1_5_verify hi k m s
 -- 2^32 * hLen, where hLen is the passed length of the hash. 
 generate_MGF1 :: HashFunction -> MGF
 generate_MGF1 hash mgfSeed maskLen 
- | BS.length mgfSeed > ((2 ^ (32::Int64)) * hLen) = error "mask too long"
- | otherwise                                      = loop BS.empty 0
+ | BS.length mgfSeed > ((2 ^ (32::Int)) * hLen) = error "mask too long"
+ | otherwise                                    = loop BS.empty 0
  where
   hLen        = BS.length $ hash BS.empty
   end_counter = (maskLen `divCeil` hLen) - 1
@@ -508,7 +508,7 @@ sha256' = bytestringDigest . sha256
 
 -- "i2osp converts a nonnegative integer to an octet string of a specified
 -- length" -- RFC 3447
-i2osp :: Integral a => a -> Int64 -> ByteString
+i2osp :: Integral a => a -> Int -> ByteString
 i2osp x len | isTooLarge = error "RSA internal error: integer too large"
             | otherwise  = padding `BS.append` digits
  where
@@ -517,7 +517,7 @@ i2osp x len | isTooLarge = error "RSA internal error: integer too large"
   xAsInt     = fromIntegral x
   lenAsInt   = fromIntegral len
   --
-  padding = BS.replicate (len - BS.length digits) 0
+  padding = BS.replicate (fromIntegral len - BS.length digits) 0
   digits = BS.pack $ reverse $ digits256 x
   digits256 v 
     | v <= 255 = [fromIntegral v]
@@ -549,15 +549,15 @@ rsa_vp1 n e s
  | (s < 0) || (s >= n) = error "signature representative out of range"
  | otherwise           = modular_exponentiation s e n -- (s ^ e) `mod` n
  
-emsa_pkcs1_v1_5_encode :: HashInfo -> ByteString -> Int64 -> ByteString
+emsa_pkcs1_v1_5_encode :: HashInfo -> ByteString -> Int -> ByteString
 emsa_pkcs1_v1_5_encode (HashInfo hash_ident hash) m emLen 
-  | emLen < (tLen + 1) = error "intended encoded message length too short"
-  | otherwise          = em
+  | (fromIntegral emLen) < (tLen + 1) = error "intended encoded message length too short"
+  | otherwise                         = em
  where
   h = hash m
   t = hash_ident `BS.append` h
   tLen = BS.length t
-  ps = BS.replicate (emLen - tLen - 3) 0xFF
+  ps = BS.replicate (fromIntegral emLen - tLen - 3) 0xFF
   em = BS.concat [BS.singleton 0x00, BS.singleton 0x01, ps,
                   BS.singleton 0x00, t] 
 
@@ -577,7 +577,7 @@ chunkify len bstr
   | BS.length bstr <= len = [bstr]
   | otherwise             = (BS.take len bstr):(chunkify len $ BS.drop len bstr)
  
-generate_random_bytestring :: CryptoRandomGen g => g -> Int64 -> (ByteString, g)
+generate_random_bytestring :: CryptoRandomGen g => g -> Int -> (ByteString, g)
 generate_random_bytestring g 0 = (BS.empty, g)
 generate_random_bytestring g x = (BS.cons' first rest, g'')
  where
@@ -592,7 +592,7 @@ divCeil a b =
 
 -- Generate p and q. This is not necessarily the best way to do this, but the
 -- ANSI standard dealing with this cost money, and I was in a hurry.
-generate_pq :: CryptoRandomGen g => g -> Int64 -> (Integer, Integer, g)
+generate_pq :: CryptoRandomGen g => g -> Int -> (Integer, Integer, g)
 generate_pq g len 
   | len < 2   = error "length to short for generate_pq"
   | p == q    = generate_pq g'' len
@@ -602,7 +602,7 @@ generate_pq g len
   (baseQ, g'') = large_random_prime g' (len - (len `div` 2))
   (p, q)       = if baseP < baseQ then (baseQ, baseP) else (baseP, baseQ)
 
-large_random_prime :: CryptoRandomGen g => g -> Int64 -> (Integer, g)
+large_random_prime :: CryptoRandomGen g => g -> Int -> (Integer, g)
 large_random_prime g len = (prime, g''')
  where
   ([startH, startT], g') = random8s g 2
@@ -611,7 +611,7 @@ large_random_prime g len = (prime, g''')
   start                  = os2ip $ BS.pack start_ls
   (prime, g''')          = find_next_prime g'' start 
   
-random8s :: CryptoRandomGen g => g -> Int64 -> ([Word8], g)
+random8s :: CryptoRandomGen g => g -> Int -> ([Word8], g)
 random8s g 0 = ([], g)
 random8s g x = 
   let (rest, g') = random8s g (x - 1)
