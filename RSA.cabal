@@ -32,7 +32,7 @@ Flag OldBase
   Default: False
 
 Library
- build-depends: bytestring, crypto-api >= 0.10, monadcryptorandom
+ build-depends: bytestring, crypto-api >= 0.10, monadcryptorandom, crypto-pubkey-types
  GHC-Options: -O2 -Wall -fno-ignore-asserts -fno-warn-orphans
  if flag(OldBase)
    build-depends: base >= 3 && < 4, SHA < 1.4.1

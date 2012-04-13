@@ -10,6 +10,7 @@ import Test.QuickCheck
 import Crypto.Random
 import Crypto.Random.DRBG
 import Crypto.Types
+import Crypto.Types.PubKey.RSA
 
 import Test.Framework (defaultMain, testGroup, Test)
 import Test.Framework.Providers.QuickCheck2 (testProperty)

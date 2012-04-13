@@ -4,8 +4,7 @@
 -- RSA standard and RFC 3447.
 module Codec.Crypto.RSA(
        -- * Keys and key generations
-         PublicKey(..), PrivateKey(..)
-       , generateKeyPair
+       generateKeyPair
        -- * High-level encryption and signing functions
        , encrypt
        , decrypt
@@ -54,6 +53,7 @@ import Data.Digest.Pure.SHA
 import Data.Int
 import Data.Word
 import Crypto.Random
+import Crypto.Types.PubKey.RSA
 import Control.Monad.CryptoRandom
 
 #ifdef USE_BINARY
@@ -65,20 +65,6 @@ import Data.Binary.Get
 #ifdef INCLUDE_MD5
 import Data.Digest.Pure.MD5
 #endif
-
-data PublicKey = PublicKey { 
-    public_size :: Int     -- ^The size of the RSA modulus, in bytes.
-  , public_n    :: Integer -- ^The RSA modulus.
-  , public_e    :: Integer -- ^The public exponent.
-  }
- deriving (Show)
-
-data PrivateKey = PrivateKey {
-    private_size :: Int     -- ^The size of the RSA modulus, in bytes.
-  , private_n    :: Integer -- ^The RSA modulus.
-  , private_d    :: Integer -- ^The private exponent.
-  }
- deriving (Show)
 
 #ifdef USE_BINARY
 instance Binary PublicKey where
@@ -95,7 +81,14 @@ instance Binary PrivateKey where
   get    = do len <- (fromIntegral . os2ip) `fmap` getLazyByteString 8
               n   <- os2ip `fmap` getLazyByteString len
               d   <- os2ip `fmap` getLazyByteString len
-              return $ PrivateKey (fromIntegral len) n d
+              return $ PrivateKey { private_size = fromIntegral len
+                                  , private_n    = n
+                                  , private_d    = d
+                                  , private_p    = 0
+                                  , private_q    = 0
+                                  , private_qinv = 0
+                                  , private_dP   = 0
+                                  , private_dQ   = 0 }
 #endif
 
 type HashFunction = ByteString -> ByteString
@@ -122,7 +115,7 @@ type MGF          = ByteString -> Int64 -> ByteString
 -- generator is of considerable importance when using this function; the 
 -- input CryptoRandomGen should never be used again for any other purpose.
 generateKeyPair :: CryptoRandomGen g => g -> Int -> (PublicKey, PrivateKey, g)
-generateKeyPair g sizeBits = (PublicKey kLen n e, PrivateKey kLen n d, g')
+generateKeyPair g sizeBits = (PublicKey kLen n e, privateKey, g')
  where
   kLen       = fromIntegral $ sizeBits `div` 8
   (p, q, g') = generate_pq g kLen
@@ -130,6 +123,14 @@ generateKeyPair g sizeBits = (PublicKey kLen n e, PrivateKey kLen n d, g')
   phi        = (p - 1) * (q - 1)
   e          = 65537
   d          = modular_inverse e phi 
+  privateKey = PrivateKey { private_size = kLen
+                          , private_n    = n
+                          , private_d    = d
+                          , private_p    = 0
+                          , private_q    = 0
+                          , private_qinv = 0
+                          , private_dP   = 0
+                          , private_dQ   = 0 }
 
 data EncryptionOptions = 
     UseOAEP {
