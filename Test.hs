@@ -10,6 +10,7 @@ import Test.QuickCheck
 import Crypto.Random
 import Crypto.Random.DRBG
 import Crypto.Types
+import Crypto.Types.PubKey.RSA
 
 import Test.Framework (defaultMain, testGroup, Test)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
@@ -128,7 +129,7 @@ prop_i2o2i_identity :: PositiveInteger -> Bool
 prop_i2o2i_identity (PI x) = x == (os2ip $ i2osp x 16)
 
 prop_o2i2o_identity :: NonEmptyByteString -> Bool
-prop_o2i2o_identity (NEBS x) = x == (i2osp (os2ip x) (BS.length x))
+prop_o2i2o_identity (NEBS x) = x == (i2osp (os2ip x) (fromIntegral $ BS.length x))
 
 prop_ep_dp_identity :: KeyPair -> PositiveInteger -> Bool
 prop_ep_dp_identity (KP1K pub priv) (PI x) = m == m'
@@ -160,14 +161,14 @@ prop_oaep_inverts g hi (KP2K pub priv) (PI seed) l (NEBS x) = m == m'
   kLen  = public_size pub
   hLen  = BS.length $ hash BS.empty
   mgf   = generate_MGF1 hash
-  m     = BS.take (kLen - (2 * hLen) - 2) x
+  m     = BS.take (fromIntegral kLen - (2 * hLen) - 2) x
   (c,_) = rsaes_oaep_encrypt g hash mgf pub  l m
   m'    = rsaes_oaep_decrypt   hash mgf priv l c
 
 prop_pkcs_inverts :: CryptoRandomGen g => g -> KeyPair -> NonEmptyByteString -> Bool
 prop_pkcs_inverts g (KP1K pub priv) (NEBS x) = m == m'
  where
-  kLen  = public_size pub
+  kLen  = fromIntegral $ public_size pub
   m     = BS.take (kLen - 11) x
   (c,_) = rsaes_pkcs1_v1_5_encrypt g pub  m
   m'    = rsaes_pkcs1_v1_5_decrypt   priv c
