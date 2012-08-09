@@ -5,6 +5,8 @@
 module Codec.Crypto.RSA(
        -- * Keys and key generations
        generateKeyPair
+       , PrivateKey
+       , PublicKey
        -- * High-level encryption and signing functions
        , encrypt
        , decrypt
