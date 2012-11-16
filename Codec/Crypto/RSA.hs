@@ -77,14 +77,11 @@ instance Binary PublicKey where
               return $ PublicKey (fromIntegral len) n 65537
 
 instance Binary PrivateKey where
-  put pk = do putLazyByteString $ i2osp (private_size pk) 8
-              putLazyByteString $ i2osp (private_n pk)    (private_size pk)
-              putLazyByteString $ i2osp (private_d pk)    (private_size pk)
-  get    = do len <- (fromIntegral . os2ip) `fmap` getLazyByteString 8
-              n   <- os2ip `fmap` getLazyByteString len
-              d   <- os2ip `fmap` getLazyByteString len
-              return $ PrivateKey { private_size = fromIntegral len
-                                  , private_n    = n
+  put pk = do put (private_pub pk)
+              putLazyByteString $ i2osp (private_d pk)    (public_size $ private_pub pk)
+  get    = do pub <- get
+              d   <- os2ip `fmap` getLazyByteString (fromIntegral $ public_size pub)
+              return $ PrivateKey { private_pub  = pub
                                   , private_d    = d
                                   , private_p    = 0
                                   , private_q    = 0
@@ -117,7 +114,7 @@ type MGF          = ByteString -> Int64 -> ByteString
 -- generator is of considerable importance when using this function; the 
 -- input CryptoRandomGen should never be used again for any other purpose.
 generateKeyPair :: CryptoRandomGen g => g -> Int -> (PublicKey, PrivateKey, g)
-generateKeyPair g sizeBits = (PublicKey kLen n e, privateKey, g')
+generateKeyPair g sizeBits = (publicKey, privateKey, g')
  where
   kLen       = fromIntegral $ sizeBits `div` 8
   (p, q, g') = generate_pq g kLen
@@ -125,8 +122,8 @@ generateKeyPair g sizeBits = (PublicKey kLen n e, privateKey, g')
   phi        = (p - 1) * (q - 1)
   e          = 65537
   d          = modular_inverse e phi 
-  privateKey = PrivateKey { private_size = kLen
-                          , private_n    = n
+  publicKey  = PublicKey kLen n e
+  privateKey = PrivateKey { private_pub  = publicKey
                           , private_d    = d
                           , private_p    = 0
                           , private_q    = 0
