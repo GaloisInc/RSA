@@ -5,6 +5,7 @@
 module Codec.Crypto.RSA(
        -- * Keys and key generations
        generateKeyPair
+       , generateKeyPairSafe
        , PrivateKey
        , PublicKey
        -- * High-level encryption and signing functions
@@ -114,22 +115,30 @@ type MGF          = ByteString -> Int64 -> ByteString
 -- generator is of considerable importance when using this function; the 
 -- input CryptoRandomGen should never be used again for any other purpose.
 generateKeyPair :: CryptoRandomGen g => g -> Int -> (PublicKey, PrivateKey, g)
-generateKeyPair g sizeBits = (publicKey, privateKey, g')
+generateKeyPair g sizeBits = (pub, priv, g')
+ where
+  ((pub,priv),g') = throwLeft $ generateKeyPairSafe sizeBits g
+
+generateKeyPairSafe :: CryptoRandomGen g => Int -> g -> Either GenError ((PublicKey, PrivateKey), g)
+generateKeyPairSafe sizeBits g = do
+  (p, q, g') <- generate_pq g kLen
+  return (go p q, g')
  where
   kLen       = fromIntegral $ sizeBits `div` 8
-  (p, q, g') = generate_pq g kLen
-  n          = p * q
-  phi        = (p - 1) * (q - 1)
-  e          = 65537
-  d          = modular_inverse e phi 
-  publicKey  = PublicKey kLen n e
-  privateKey = PrivateKey { private_pub  = publicKey
-                          , private_d    = d
-                          , private_p    = 0
-                          , private_q    = 0
-                          , private_qinv = 0
-                          , private_dP   = 0
-                          , private_dQ   = 0 }
+  go p q = (publicKey, privateKey)
+   where
+    n          = p * q
+    phi        = (p - 1) * (q - 1)
+    e          = 65537
+    d          = modular_inverse e phi
+    publicKey  = PublicKey kLen n e
+    privateKey = PrivateKey { private_pub  = publicKey
+                            , private_d    = d
+                            , private_p    = 0
+                            , private_q    = 0
+                            , private_qinv = 0
+                            , private_dP   = 0
+                            , private_dQ   = 0 }
 
 data EncryptionOptions = 
     UseOAEP {
@@ -592,44 +601,49 @@ divCeil a b =
 
 -- Generate p and q. This is not necessarily the best way to do this, but the
 -- ANSI standard dealing with this cost money, and I was in a hurry.
-generate_pq :: CryptoRandomGen g => g -> Int -> (Integer, Integer, g)
+generate_pq :: CryptoRandomGen g => g -> Int -> Either GenError (Integer, Integer, g)
 generate_pq g len 
   | len < 2   = error "length to short for generate_pq"
-  | p == q    = generate_pq g'' len
-  | otherwise = (p, q, g'')
+  | otherwise = do
+    (baseP, g')  <- large_random_prime g  (len `div` 2)
+    (baseQ, g'') <- large_random_prime g' (len - (len `div` 2))
+    let (p, q)       = if baseP < baseQ then (baseQ, baseP) else (baseP, baseQ)
+    go p q g''
  where
-  (baseP, g')  = large_random_prime g  (len `div` 2)
-  (baseQ, g'') = large_random_prime g' (len - (len `div` 2))
-  (p, q)       = if baseP < baseQ then (baseQ, baseP) else (baseP, baseQ)
+  go p q g''
+    | p == q    = generate_pq g'' len
+    | otherwise = return (p, q, g'')
 
-large_random_prime :: CryptoRandomGen g => g -> Int -> (Integer, g)
-large_random_prime g len = (prime, g''')
+large_random_prime :: CryptoRandomGen g => g -> Int -> Either GenError (Integer, g)
+large_random_prime g len = do
+  ([startH, startT], g') <- random8s g 2
+  (startMids, g'')       <- random8s g' (len - 2)
+  let start_ls           = [startH .|. 0xc0] ++ startMids ++ [startT .|. 1]
+  let start              = os2ip $ BS.pack start_ls
+  (prime, g''')          <- find_next_prime g'' start
+  return (prime, g''')
+
+random8s :: CryptoRandomGen g => g -> Int -> Either GenError ([Word8], g)
+random8s g 0 = return ([], g)
+random8s g x = do
+  (rest, g') <- random8s g (x - 1)
+  (next8, g'') <- crandom g'
+  return (next8:rest, g'')
+
+find_next_prime :: CryptoRandomGen g => g -> Integer -> Either GenError (Integer, g)
+find_next_prime g n = do
+  (got_a_prime, g') <- is_probably_prime g n
+  go got_a_prime g'
  where
-  ([startH, startT], g') = random8s g 2
-  (startMids, g'')       = random8s g' (len - 2)
-  start_ls               = [startH .|. 0xc0] ++ startMids ++ [startT .|. 1]
-  start                  = os2ip $ BS.pack start_ls
-  (prime, g''')          = find_next_prime g'' start 
-  
-random8s :: CryptoRandomGen g => g -> Int -> ([Word8], g)
-random8s g 0 = ([], g)
-random8s g x = 
-  let (rest, g') = random8s g (x - 1)
-      (next8, g'') = throwLeft (crandom g')
-  in (next8:rest, g'')
+  go got_a_prime g'
+    | even n             = error "Even number sent to find_next_prime"
+    | n `mod` 65537 == 1 = find_next_prime g (n + 2)
+    | got_a_prime        = return (n, g')
+    | otherwise          = find_next_prime g' (n + 2)
 
-find_next_prime :: CryptoRandomGen g => g -> Integer -> (Integer, g)
-find_next_prime g n
-  | even n             = error "Even number sent to find_next_prime"
-  | n `mod` 65537 == 1 = find_next_prime g (n + 2)
-  | got_a_prime        = (n, g')
-  | otherwise          = find_next_prime g' (n + 2)
- where
-  (got_a_prime, g') = is_probably_prime g n
-
-is_probably_prime :: CryptoRandomGen g => g -> Integer -> (Bool, g)
+is_probably_prime :: CryptoRandomGen g => g -> Integer -> Either GenError (Bool, g)
 is_probably_prime !g !n 
-  | any (\ x -> n `mod` x == 0) small_primes = (False, g)
+  | any (\ x -> n `mod` x == 0) small_primes = return (False, g)
   | otherwise                                = miller_rabin g n 20
  where
   small_primes = [   2,    3,    5,    7,   11,   13,   17,   19,   23,   29,
@@ -650,15 +664,18 @@ is_probably_prime !g !n
                    877,  881,  883,  887,  907,  911,  919,  929,  937,  941,
                    947,  953,  967,  971,  977,  983,  991,  997, 1009, 1013  ]
 
-miller_rabin :: CryptoRandomGen g => g -> Integer -> Int -> (Bool, g)
-miller_rabin g _ 0             = (True, g)
-miller_rabin g n k | test a n  = (False, g')
-                   | otherwise = miller_rabin g' n (k - 1)
+miller_rabin :: CryptoRandomGen g => g -> Integer -> Int -> Either GenError (Bool, g)
+miller_rabin g _ 0             = return (True, g)
+miller_rabin g n k = do
+  (a, g') <- crandomR (2, n - 2) g
+  go a g'
  where
-  (a, g') = throwLeft (crandomR (2, n - 2) g)
+  go a g'
+    | test a n  = return (False, g')
+    | otherwise = miller_rabin g' n (k - 1)
   base_b = tail $ reverse $ toBinary (n - 1) 
   -- 
-  test a' n' = pow base_b a
+  test a n' = pow base_b a
    where
     pow   _  1 = False
     pow  []  _ = True 
@@ -666,7 +683,7 @@ miller_rabin g n k | test a n  = (False, g')
      where
       pow' _          !d1 !d2 | d2==1 && d1 /= (n'-1) = True
       pow' (False:ys)   _ !d2                         = pow ys d2
-      pow' (True :ys)   _ !d2                         = pow ys $ (d2*a')`mod`n'
+      pow' (True :ys)   _ !d2                         = pow ys $ (d2*a)`mod`n'
       pow' _            _   _                         = error "bad case"
   -- 
   toBinary 0 = []
