@@ -32,6 +32,7 @@ module Codec.Crypto.RSA(
        , rsaes_pkcs1_v1_5_decrypt 
        , rsaes_pkcs1_v1_5_decrypt_safe
        , rsassa_pkcs1_v1_5_sign
+       , rsassa_pkcs1_v1_5_sign_safe
        , rsassa_pkcs1_v1_5_verify
        -- * Hashing algorithm declarations for use in RSA functions
        , HashFunction
@@ -445,15 +446,18 @@ rsaes_pkcs1_v1_5_decrypt_safe k c
 -- signature.
 --
 rsassa_pkcs1_v1_5_sign :: HashInfo -> PrivateKey -> ByteString -> ByteString
-rsassa_pkcs1_v1_5_sign hi k m = sig
+rsassa_pkcs1_v1_5_sign hi k = throwLeft . rsassa_pkcs1_v1_5_sign_safe hi k
+
+rsassa_pkcs1_v1_5_sign_safe :: HashInfo -> PrivateKey -> ByteString -> Either Error ByteString
+rsassa_pkcs1_v1_5_sign_safe hi k m = do
+  em <- emsa_pkcs1_v1_5_encode hi m kLen
+  let m_i = os2ip em
+  let s   = rsa_sp1 (private_n k) (private_d k)  m_i
+  let sig = i2osp s kLen
+  return sig
  where
    kLen = private_size k
-   --
-   em  = emsa_pkcs1_v1_5_encode hi m kLen
-   m_i = os2ip em
-   s   = rsa_sp1 (private_n k) (private_d k)  m_i
-   sig = i2osp s kLen
-    
+
 -- |Validates a signature for the given message using the given public
 -- key. The arguments are, in order: the hash function to use, the public key,
 -- the message, and the signature. The signature must be exactly k bytes long,
@@ -475,7 +479,7 @@ rsassa_pkcs1_v1_5_verify hi k m s
   -- Step 3
   em' = emsa_pkcs1_v1_5_encode hi m kLen
   -- Step 4
-  res = em == em'
+  res = Right em == em'
    
 -- |Generate a mask generation function for the rsaes_oaep_*. As 
 -- suggested by the name, the generated function is an instance of the MGF1
@@ -596,10 +600,10 @@ rsa_vp1 n e s
  | (s < 0) || (s >= n) = error "signature representative out of range"
  | otherwise           = modular_exponentiation s e n -- (s ^ e) `mod` n
  
-emsa_pkcs1_v1_5_encode :: HashInfo -> ByteString -> Int -> ByteString
+emsa_pkcs1_v1_5_encode :: HashInfo -> ByteString -> Int -> Either Error ByteString
 emsa_pkcs1_v1_5_encode (HashInfo hash_ident hash) m emLen 
-  | (fromIntegral emLen) < (tLen + 1) = error "intended encoded message length too short"
-  | otherwise                         = em
+  | (fromIntegral emLen) < (tLen + 1) = Left MessageLengthError
+  | otherwise                         = Right em
  where
   h = hash m
   t = hash_ident `BS.append` h
