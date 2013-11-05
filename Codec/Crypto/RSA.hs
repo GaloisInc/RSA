@@ -21,6 +21,7 @@ module Codec.Crypto.RSA(
        , rsaes_oaep_encrypt
        , rsaes_oaep_encrypt_safe
        , rsaes_oaep_decrypt
+       , rsaes_oaep_decrypt_safe
        , generate_MGF1
        -- * Core PSS Routines
        -- $pss
@@ -51,6 +52,8 @@ module Codec.Crypto.RSA(
  where
 
 import Data.Bits
+import Data.Typeable (Typeable)
+import Control.Exception (Exception, throw)
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
@@ -104,6 +107,11 @@ data HashInfo     = HashInfo {
 -- is a hash of the given length. Unless you know what you're doing, you 
 -- should probably use a MGF1 formulation created with generate_MGF1.
 type MGF          = ByteString -> Int64 -> ByteString
+
+data Error = MessageLengthError | MessageDecryptError
+	deriving (Show, Eq, Typeable)
+
+instance Exception Error
 
 -- --------------------------------------------------------------------------
 --
@@ -247,16 +255,19 @@ decrypt' opts priv cipher = BS.concat $ map decryptor chunks
 rsaes_oaep_encrypt :: CryptoRandomGen g => g -> HashFunction -> MGF ->
                       PublicKey -> ByteString -> ByteString ->
                       (ByteString,g)
-rsaes_oaep_encrypt g hash mgf k l m = throwLeft $ rsaes_oaep_encrypt_safe hash mgf k l m g
+rsaes_oaep_encrypt g hash mgf k l m = case rsaes_oaep_encrypt_safe hash mgf k l m g of
+  Left (Left ge) -> throw ge
+  Left (Right e) -> throw e
+  Right x -> x
 
 rsaes_oaep_encrypt_safe :: CryptoRandomGen g => HashFunction -> MGF ->
                       PublicKey -> ByteString -> ByteString -> g ->
-                      Either GenError (ByteString,g)
+                      Either (Either GenError Error) (ByteString,g)
 rsaes_oaep_encrypt_safe hash mgf k l m g
   -- Techically message too long is not really a GenError, but this works for now
-  | message_too_long = Left $ GenErrorOther "message too long (rsaes_oaep_encrypt)"
+  | message_too_long = Left $ Right MessageLengthError
   | otherwise        = do
-    (seedStrict,g') <- genBytes (fromIntegral hLen) g
+    (seedStrict,g') <- fmapL Left $ genBytes (fromIntegral hLen) g
     let seed       = BS.fromChunks [seedStrict]
     -- Step 2
     let dbMask     = mgf seed (kLen - hLen - 1)
@@ -304,11 +315,16 @@ rsaes_oaep_encrypt_safe hash mgf k l m g
 rsaes_oaep_decrypt :: HashFunction -> MGF ->
                       PrivateKey -> ByteString -> ByteString ->
                       ByteString
-rsaes_oaep_decrypt hash mgf k l c 
-  | bad_message_len = error "message too short"
-  | bad_hash_len    = error "bad hash length"
-  | signal_error    = error $ "decryption error " ++ (show $ BS.any (/= 1) one) ++ " " ++ (show $ lHash /= lHash') ++ " " ++ (show $ BS.any (/= 0) y)
-  | otherwise       = m
+rsaes_oaep_decrypt hash mgf k l c = throwLeft $ rsaes_oaep_decrypt_safe hash mgf k l c
+
+rsaes_oaep_decrypt_safe :: HashFunction -> MGF ->
+                      PrivateKey -> ByteString -> ByteString ->
+                      Either Error ByteString
+rsaes_oaep_decrypt_safe hash mgf k l c
+  | bad_message_len = Left MessageLengthError
+  | bad_hash_len    = Left MessageLengthError
+  | signal_error    = Left MessageDecryptError
+  | otherwise       = Right m
  where
   hLen = BS.length $ hash BS.empty
   kLen = private_size k
@@ -725,3 +741,7 @@ gcde a b | d < 0     = (-d, -x, -y)
     | r2 == 0   = (r1, x1, y1)
     | otherwise = let (q, r) = r1 `divMod` r2
                   in gcd_f (r2, x2, y2) (r, x1 - (q * x2), y1 - (q * y2))
+
+fmapL :: (a -> b) -> Either a c -> Either b c
+fmapL f (Left x) = Left (f x)
+fmapL _ (Right x) = Right x

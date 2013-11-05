@@ -48,7 +48,7 @@ Library
       build-depends: pureMD5
    CPP-Options: -DINCLUDE_MD5
  exposed-modules: Codec.Crypto.RSA
- extensions: CPP, BangPatterns, ScopedTypeVariables
+ extensions: CPP, BangPatterns, ScopedTypeVariables, DeriveDataTypeable
 
 Executable test_rsa
   if flag(test)
@@ -67,7 +67,7 @@ Executable test_rsa
   CPP-Options: -DRSA_TEST
   Main-Is: Test.hs
   Other-Modules: Codec.Crypto.RSA
-  extensions: CPP, BangPatterns, ScopedTypeVariables
+  extensions: CPP, BangPatterns, ScopedTypeVariables, DeriveDataTypeable
 
 source-repository head
   type: git
