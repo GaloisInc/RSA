@@ -28,6 +28,7 @@ module Codec.Crypto.RSA(
 
        -- * Core PKCS1 (v1.5) Routines
        , rsaes_pkcs1_v1_5_encrypt 
+       , rsaes_pkcs1_v1_5_encrypt_safe
        , rsaes_pkcs1_v1_5_decrypt 
        , rsassa_pkcs1_v1_5_sign
        , rsassa_pkcs1_v1_5_verify
@@ -370,22 +371,30 @@ rsaes_oaep_decrypt_safe hash mgf k l c
 rsaes_pkcs1_v1_5_encrypt :: CryptoRandomGen g => 
                             g -> PublicKey -> ByteString -> 
                             (ByteString, g)
-rsaes_pkcs1_v1_5_encrypt rGen k m 
-  | message_too_long = error "message too long"
-  | otherwise        = (c, rGen')
+rsaes_pkcs1_v1_5_encrypt g k m = case rsaes_pkcs1_v1_5_encrypt_safe k m g of
+  Left (Left ge) -> throw ge
+  Left (Right e) -> throw e
+  Right x -> x
+
+rsaes_pkcs1_v1_5_encrypt_safe :: CryptoRandomGen g =>
+                            PublicKey -> ByteString -> g ->
+                            Either (Either GenError Error) (ByteString, g)
+rsaes_pkcs1_v1_5_encrypt_safe k m rGen
+  | message_too_long = Left (Right MessageLengthError)
+  | otherwise        = do
+    (ps, rGen') <- fmapL Left $ generate_random_bytestring rGen (kLen - mLen - 3)
+    --  Step2
+    let em  = BS.concat [BS.singleton 0, BS.singleton 2, ps, BS.singleton 0, m]
+    let m'  = os2ip em
+    let c_i = rsa_ep (public_n k) (public_e k) m'
+    let c   = i2osp c_i kLen
+    return (c, rGen')
  where
   mLen = fromIntegral $ BS.length m
   kLen = public_size k
   -- Step 1
   message_too_long = mLen > (kLen - 11)
-  --  Step2
-  (ps, rGen') = generate_random_bytestring rGen (kLen - mLen - 3)
-  em          = BS.concat [BS.singleton 0, BS.singleton 2, ps,
-                           BS.singleton 0, m]
-  m'          = os2ip em
-  c_i         = rsa_ep (public_n k) (public_e k) m'
-  c           = i2osp c_i kLen 
-  
+
 -- |Implements RSAES-PKCS1-v1.5-Decrypt, as defined by the spec, for
 -- completeness and possible backward compatibility. Please see the notes
 -- for rsaes_pkcs1_v1_5_encrypt regarding use of this function in new 
@@ -611,12 +620,12 @@ chunkify len bstr
   | BS.length bstr <= len = [bstr]
   | otherwise             = (BS.take len bstr):(chunkify len $ BS.drop len bstr)
  
-generate_random_bytestring :: CryptoRandomGen g => g -> Int -> (ByteString, g)
-generate_random_bytestring g 0 = (BS.empty, g)
-generate_random_bytestring g x = (BS.cons' first rest, g'')
- where
-  (rest, g')   = generate_random_bytestring g (x - 1)
-  (first, g'') = throwLeft $ crandomR (1,255) g'
+generate_random_bytestring :: CryptoRandomGen g => g -> Int -> Either GenError (ByteString, g)
+generate_random_bytestring g 0 = Right (BS.empty, g)
+generate_random_bytestring g x = do
+  (rest, g')   <- generate_random_bytestring g (x - 1)
+  (first, g'') <- crandomR (1,255) g'
+  return (BS.cons' first rest, g'')
 
 -- Divide a by b, rounding towards positive infinity.
 divCeil :: Integral a => a -> a -> a
