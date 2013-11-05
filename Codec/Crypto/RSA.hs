@@ -19,6 +19,7 @@ module Codec.Crypto.RSA(
        -- * Core OAEP Routines
        , MGF
        , rsaes_oaep_encrypt
+       , rsaes_oaep_encrypt_safe
        , rsaes_oaep_decrypt
        , generate_MGF1
        -- * Core PSS Routines
@@ -243,33 +244,41 @@ decrypt' opts priv cipher = BS.concat $ map decryptor chunks
 -- I have not put in a check for the length of the label, because I don't
 -- expect you to use more than 2^32 bytes. So don't make me regret that, eh?
 --
-rsaes_oaep_encrypt :: CryptoRandomGen g => g -> HashFunction -> MGF -> 
+rsaes_oaep_encrypt :: CryptoRandomGen g => g -> HashFunction -> MGF ->
                       PublicKey -> ByteString -> ByteString ->
                       (ByteString,g)
-rsaes_oaep_encrypt g hash mgf k l m
-  | message_too_long = error "message too long (rsaes_oaep_encrypt)"
-  | otherwise        = (c,g')
+rsaes_oaep_encrypt g hash mgf k l m = throwLeft $ rsaes_oaep_encrypt_safe hash mgf k l m g
+
+rsaes_oaep_encrypt_safe :: CryptoRandomGen g => HashFunction -> MGF ->
+                      PublicKey -> ByteString -> ByteString -> g ->
+                      Either GenError (ByteString,g)
+rsaes_oaep_encrypt_safe hash mgf k l m g
+  -- Techically message too long is not really a GenError, but this works for now
+  | message_too_long = Left $ GenErrorOther "message too long (rsaes_oaep_encrypt)"
+  | otherwise        = do
+    (seedStrict,g') <- genBytes (fromIntegral hLen) g
+    let seed       = BS.fromChunks [seedStrict]
+    -- Step 2
+    let dbMask     = mgf seed (kLen - hLen - 1)
+    let maskedDB   = db `xorBS` dbMask
+    let seedMask   = mgf maskedDB hLen
+    let maskedSeed = seed `xorBS` seedMask
+    let em         = BS.concat [BS.singleton 0, maskedSeed, maskedDB]
+    -- Step 3
+    let m_ip       = os2ip em
+    let c_ip       = rsa_ep (public_n k) (public_e k) m_ip
+    let c          = i2osp c_ip (fromIntegral kLen)
+    return (c,g')
  where
   mLen = BS.length m -- Int64
   hLen = BS.length $ hash BS.empty -- Int64
   kLen = fromIntegral $ public_size k
-  (seedStrict,g') = throwLeft $ genBytes (fromIntegral hLen) g
-  seed = BS.fromChunks [seedStrict]
   -- Step 1
   message_too_long = mLen > (kLen - (2 * hLen) - 2)
   -- Step 2
   lHash      = hash l
   ps         = BS.take (kLen - mLen - (2 * hLen) - 2) (BS.repeat 0)
   db         = BS.concat [lHash, ps, BS.singleton 1, m]
-  dbMask     = mgf seed (kLen - hLen - 1)
-  maskedDB   = db `xorBS` dbMask
-  seedMask   = mgf maskedDB hLen
-  maskedSeed = seed `xorBS` seedMask
-  em         = BS.concat [BS.singleton 0, maskedSeed, maskedDB]
-  -- Step 3
-  m_ip       = os2ip em
-  c_ip       = rsa_ep (public_n k) (public_e k) m_ip
-  c          = i2osp c_ip (fromIntegral kLen)
 
 -- |The generalized implementation of RSAES-OAEP-DECRYPT. Again, 'decrypt'
 -- initializes this with a pretty good set of defaults if you don't understand
