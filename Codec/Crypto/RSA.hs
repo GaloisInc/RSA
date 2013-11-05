@@ -5,6 +5,7 @@
 module Codec.Crypto.RSA(
        -- * Keys and key generations
        generateKeyPair
+       , generateKeyPairSafe
        , PrivateKey
        , PublicKey
        -- * High-level encryption and signing functions
@@ -18,15 +19,20 @@ module Codec.Crypto.RSA(
        -- * Core OAEP Routines
        , MGF
        , rsaes_oaep_encrypt
+       , rsaes_oaep_encrypt_safe
        , rsaes_oaep_decrypt
+       , rsaes_oaep_decrypt_safe
        , generate_MGF1
        -- * Core PSS Routines
        -- $pss
 
        -- * Core PKCS1 (v1.5) Routines
        , rsaes_pkcs1_v1_5_encrypt 
+       , rsaes_pkcs1_v1_5_encrypt_safe
        , rsaes_pkcs1_v1_5_decrypt 
+       , rsaes_pkcs1_v1_5_decrypt_safe
        , rsassa_pkcs1_v1_5_sign
+       , rsassa_pkcs1_v1_5_sign_safe
        , rsassa_pkcs1_v1_5_verify
        -- * Hashing algorithm declarations for use in RSA functions
        , HashFunction
@@ -49,6 +55,8 @@ module Codec.Crypto.RSA(
  where
 
 import Data.Bits
+import Data.Typeable (Typeable)
+import Control.Exception (Exception, throw)
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
@@ -103,6 +111,11 @@ data HashInfo     = HashInfo {
 -- should probably use a MGF1 formulation created with generate_MGF1.
 type MGF          = ByteString -> Int64 -> ByteString
 
+data Error = MessageLengthError | MessageDecryptError
+	deriving (Show, Eq, Typeable)
+
+instance Exception Error
+
 -- --------------------------------------------------------------------------
 --
 --                      EASY TO USE PUBLIC FUNCTIONS
@@ -114,22 +127,30 @@ type MGF          = ByteString -> Int64 -> ByteString
 -- generator is of considerable importance when using this function; the 
 -- input CryptoRandomGen should never be used again for any other purpose.
 generateKeyPair :: CryptoRandomGen g => g -> Int -> (PublicKey, PrivateKey, g)
-generateKeyPair g sizeBits = (publicKey, privateKey, g')
+generateKeyPair g sizeBits = (pub, priv, g')
+ where
+  ((pub,priv),g') = throwLeft $ generateKeyPairSafe sizeBits g
+
+generateKeyPairSafe :: CryptoRandomGen g => Int -> g -> Either GenError ((PublicKey, PrivateKey), g)
+generateKeyPairSafe sizeBits g = do
+  (p, q, g') <- generate_pq g kLen
+  return (go p q, g')
  where
   kLen       = fromIntegral $ sizeBits `div` 8
-  (p, q, g') = generate_pq g kLen
-  n          = p * q
-  phi        = (p - 1) * (q - 1)
-  e          = 65537
-  d          = modular_inverse e phi 
-  publicKey  = PublicKey kLen n e
-  privateKey = PrivateKey { private_pub  = publicKey
-                          , private_d    = d
-                          , private_p    = 0
-                          , private_q    = 0
-                          , private_qinv = 0
-                          , private_dP   = 0
-                          , private_dQ   = 0 }
+  go p q = (publicKey, privateKey)
+   where
+    n          = p * q
+    phi        = (p - 1) * (q - 1)
+    e          = 65537
+    d          = modular_inverse e phi
+    publicKey  = PublicKey kLen n e
+    privateKey = PrivateKey { private_pub  = publicKey
+                            , private_d    = d
+                            , private_p    = 0
+                            , private_q    = 0
+                            , private_qinv = 0
+                            , private_dP   = 0
+                            , private_dQ   = 0 }
 
 data EncryptionOptions = 
     UseOAEP {
@@ -234,33 +255,44 @@ decrypt' opts priv cipher = BS.concat $ map decryptor chunks
 -- I have not put in a check for the length of the label, because I don't
 -- expect you to use more than 2^32 bytes. So don't make me regret that, eh?
 --
-rsaes_oaep_encrypt :: CryptoRandomGen g => g -> HashFunction -> MGF -> 
+rsaes_oaep_encrypt :: CryptoRandomGen g => g -> HashFunction -> MGF ->
                       PublicKey -> ByteString -> ByteString ->
                       (ByteString,g)
-rsaes_oaep_encrypt g hash mgf k l m
-  | message_too_long = error "message too long (rsaes_oaep_encrypt)"
-  | otherwise        = (c,g')
+rsaes_oaep_encrypt g hash mgf k l m = case rsaes_oaep_encrypt_safe hash mgf k l m g of
+  Left (Left ge) -> throw ge
+  Left (Right e) -> throw e
+  Right x -> x
+
+rsaes_oaep_encrypt_safe :: CryptoRandomGen g => HashFunction -> MGF ->
+                      PublicKey -> ByteString -> ByteString -> g ->
+                      Either (Either GenError Error) (ByteString,g)
+rsaes_oaep_encrypt_safe hash mgf k l m g
+  -- Techically message too long is not really a GenError, but this works for now
+  | message_too_long = Left $ Right MessageLengthError
+  | otherwise        = do
+    (seedStrict,g') <- fmapL Left $ genBytes (fromIntegral hLen) g
+    let seed       = BS.fromChunks [seedStrict]
+    -- Step 2
+    let dbMask     = mgf seed (kLen - hLen - 1)
+    let maskedDB   = db `xorBS` dbMask
+    let seedMask   = mgf maskedDB hLen
+    let maskedSeed = seed `xorBS` seedMask
+    let em         = BS.concat [BS.singleton 0, maskedSeed, maskedDB]
+    -- Step 3
+    let m_ip       = os2ip em
+    let c_ip       = rsa_ep (public_n k) (public_e k) m_ip
+    let c          = i2osp c_ip (fromIntegral kLen)
+    return (c,g')
  where
   mLen = BS.length m -- Int64
   hLen = BS.length $ hash BS.empty -- Int64
   kLen = fromIntegral $ public_size k
-  (seedStrict,g') = throwLeft $ genBytes (fromIntegral hLen) g
-  seed = BS.fromChunks [seedStrict]
   -- Step 1
   message_too_long = mLen > (kLen - (2 * hLen) - 2)
   -- Step 2
   lHash      = hash l
   ps         = BS.take (kLen - mLen - (2 * hLen) - 2) (BS.repeat 0)
   db         = BS.concat [lHash, ps, BS.singleton 1, m]
-  dbMask     = mgf seed (kLen - hLen - 1)
-  maskedDB   = db `xorBS` dbMask
-  seedMask   = mgf maskedDB hLen
-  maskedSeed = seed `xorBS` seedMask
-  em         = BS.concat [BS.singleton 0, maskedSeed, maskedDB]
-  -- Step 3
-  m_ip       = os2ip em
-  c_ip       = rsa_ep (public_n k) (public_e k) m_ip
-  c          = i2osp c_ip (fromIntegral kLen)
 
 -- |The generalized implementation of RSAES-OAEP-DECRYPT. Again, 'decrypt'
 -- initializes this with a pretty good set of defaults if you don't understand
@@ -286,11 +318,16 @@ rsaes_oaep_encrypt g hash mgf k l m
 rsaes_oaep_decrypt :: HashFunction -> MGF ->
                       PrivateKey -> ByteString -> ByteString ->
                       ByteString
-rsaes_oaep_decrypt hash mgf k l c 
-  | bad_message_len = error "message too short"
-  | bad_hash_len    = error "bad hash length"
-  | signal_error    = error $ "decryption error " ++ (show $ BS.any (/= 1) one) ++ " " ++ (show $ lHash /= lHash') ++ " " ++ (show $ BS.any (/= 0) y)
-  | otherwise       = m
+rsaes_oaep_decrypt hash mgf k l c = throwLeft $ rsaes_oaep_decrypt_safe hash mgf k l c
+
+rsaes_oaep_decrypt_safe :: HashFunction -> MGF ->
+                      PrivateKey -> ByteString -> ByteString ->
+                      Either Error ByteString
+rsaes_oaep_decrypt_safe hash mgf k l c
+  | bad_message_len = Left MessageLengthError
+  | bad_hash_len    = Left MessageLengthError
+  | signal_error    = Left MessageDecryptError
+  | otherwise       = Right m
  where
   hLen = BS.length $ hash BS.empty
   kLen = private_size k
@@ -336,22 +373,30 @@ rsaes_oaep_decrypt hash mgf k l c
 rsaes_pkcs1_v1_5_encrypt :: CryptoRandomGen g => 
                             g -> PublicKey -> ByteString -> 
                             (ByteString, g)
-rsaes_pkcs1_v1_5_encrypt rGen k m 
-  | message_too_long = error "message too long"
-  | otherwise        = (c, rGen')
+rsaes_pkcs1_v1_5_encrypt g k m = case rsaes_pkcs1_v1_5_encrypt_safe k m g of
+  Left (Left ge) -> throw ge
+  Left (Right e) -> throw e
+  Right x -> x
+
+rsaes_pkcs1_v1_5_encrypt_safe :: CryptoRandomGen g =>
+                            PublicKey -> ByteString -> g ->
+                            Either (Either GenError Error) (ByteString, g)
+rsaes_pkcs1_v1_5_encrypt_safe k m rGen
+  | message_too_long = Left (Right MessageLengthError)
+  | otherwise        = do
+    (ps, rGen') <- fmapL Left $ generate_random_bytestring rGen (kLen - mLen - 3)
+    --  Step2
+    let em  = BS.concat [BS.singleton 0, BS.singleton 2, ps, BS.singleton 0, m]
+    let m'  = os2ip em
+    let c_i = rsa_ep (public_n k) (public_e k) m'
+    let c   = i2osp c_i kLen
+    return (c, rGen')
  where
   mLen = fromIntegral $ BS.length m
   kLen = public_size k
   -- Step 1
   message_too_long = mLen > (kLen - 11)
-  --  Step2
-  (ps, rGen') = generate_random_bytestring rGen (kLen - mLen - 3)
-  em          = BS.concat [BS.singleton 0, BS.singleton 2, ps,
-                           BS.singleton 0, m]
-  m'          = os2ip em
-  c_i         = rsa_ep (public_n k) (public_e k) m'
-  c           = i2osp c_i kLen 
-  
+
 -- |Implements RSAES-PKCS1-v1.5-Decrypt, as defined by the spec, for
 -- completeness and possible backward compatibility. Please see the notes
 -- for rsaes_pkcs1_v1_5_encrypt regarding use of this function in new 
@@ -361,10 +406,13 @@ rsaes_pkcs1_v1_5_encrypt rGen k m
 -- where k is the length of the key modulus in bytes.
 --
 rsaes_pkcs1_v1_5_decrypt :: PrivateKey -> ByteString -> ByteString
-rsaes_pkcs1_v1_5_decrypt k c 
-  | wrong_size   = error "message size incorrect"
-  | signal_error = error "decryption error"
-  | otherwise    = m
+rsaes_pkcs1_v1_5_decrypt k = throwLeft . rsaes_pkcs1_v1_5_decrypt_safe k
+
+rsaes_pkcs1_v1_5_decrypt_safe :: PrivateKey -> ByteString -> Either Error ByteString
+rsaes_pkcs1_v1_5_decrypt_safe k c
+  | wrong_size   = Left MessageLengthError
+  | signal_error = Left MessageDecryptError
+  | otherwise    = Right m
  where
   mLen = fromIntegral $ BS.length c
   kLen = private_size k
@@ -398,15 +446,18 @@ rsaes_pkcs1_v1_5_decrypt k c
 -- signature.
 --
 rsassa_pkcs1_v1_5_sign :: HashInfo -> PrivateKey -> ByteString -> ByteString
-rsassa_pkcs1_v1_5_sign hi k m = sig
+rsassa_pkcs1_v1_5_sign hi k = throwLeft . rsassa_pkcs1_v1_5_sign_safe hi k
+
+rsassa_pkcs1_v1_5_sign_safe :: HashInfo -> PrivateKey -> ByteString -> Either Error ByteString
+rsassa_pkcs1_v1_5_sign_safe hi k m = do
+  em <- emsa_pkcs1_v1_5_encode hi m kLen
+  let m_i = os2ip em
+  let s   = rsa_sp1 (private_n k) (private_d k)  m_i
+  let sig = i2osp s kLen
+  return sig
  where
    kLen = private_size k
-   --
-   em  = emsa_pkcs1_v1_5_encode hi m kLen
-   m_i = os2ip em
-   s   = rsa_sp1 (private_n k) (private_d k)  m_i
-   sig = i2osp s kLen
-    
+
 -- |Validates a signature for the given message using the given public
 -- key. The arguments are, in order: the hash function to use, the public key,
 -- the message, and the signature. The signature must be exactly k bytes long,
@@ -428,7 +479,7 @@ rsassa_pkcs1_v1_5_verify hi k m s
   -- Step 3
   em' = emsa_pkcs1_v1_5_encode hi m kLen
   -- Step 4
-  res = em == em'
+  res = Right em == em'
    
 -- |Generate a mask generation function for the rsaes_oaep_*. As 
 -- suggested by the name, the generated function is an instance of the MGF1
@@ -549,10 +600,10 @@ rsa_vp1 n e s
  | (s < 0) || (s >= n) = error "signature representative out of range"
  | otherwise           = modular_exponentiation s e n -- (s ^ e) `mod` n
  
-emsa_pkcs1_v1_5_encode :: HashInfo -> ByteString -> Int -> ByteString
+emsa_pkcs1_v1_5_encode :: HashInfo -> ByteString -> Int -> Either Error ByteString
 emsa_pkcs1_v1_5_encode (HashInfo hash_ident hash) m emLen 
-  | (fromIntegral emLen) < (tLen + 1) = error "intended encoded message length too short"
-  | otherwise                         = em
+  | (fromIntegral emLen) < (tLen + 1) = Left MessageLengthError
+  | otherwise                         = Right em
  where
   h = hash m
   t = hash_ident `BS.append` h
@@ -577,12 +628,12 @@ chunkify len bstr
   | BS.length bstr <= len = [bstr]
   | otherwise             = (BS.take len bstr):(chunkify len $ BS.drop len bstr)
  
-generate_random_bytestring :: CryptoRandomGen g => g -> Int -> (ByteString, g)
-generate_random_bytestring g 0 = (BS.empty, g)
-generate_random_bytestring g x = (BS.cons' first rest, g'')
- where
-  (rest, g')   = generate_random_bytestring g (x - 1)
-  (first, g'') = throwLeft $ crandomR (1,255) g'
+generate_random_bytestring :: CryptoRandomGen g => g -> Int -> Either GenError (ByteString, g)
+generate_random_bytestring g 0 = Right (BS.empty, g)
+generate_random_bytestring g x = do
+  (rest, g')   <- generate_random_bytestring g (x - 1)
+  (first, g'') <- crandomR (1,255) g'
+  return (BS.cons' first rest, g'')
 
 -- Divide a by b, rounding towards positive infinity.
 divCeil :: Integral a => a -> a -> a
@@ -592,44 +643,49 @@ divCeil a b =
 
 -- Generate p and q. This is not necessarily the best way to do this, but the
 -- ANSI standard dealing with this cost money, and I was in a hurry.
-generate_pq :: CryptoRandomGen g => g -> Int -> (Integer, Integer, g)
+generate_pq :: CryptoRandomGen g => g -> Int -> Either GenError (Integer, Integer, g)
 generate_pq g len 
   | len < 2   = error "length to short for generate_pq"
-  | p == q    = generate_pq g'' len
-  | otherwise = (p, q, g'')
+  | otherwise = do
+    (baseP, g')  <- large_random_prime g  (len `div` 2)
+    (baseQ, g'') <- large_random_prime g' (len - (len `div` 2))
+    let (p, q)       = if baseP < baseQ then (baseQ, baseP) else (baseP, baseQ)
+    go p q g''
  where
-  (baseP, g')  = large_random_prime g  (len `div` 2)
-  (baseQ, g'') = large_random_prime g' (len - (len `div` 2))
-  (p, q)       = if baseP < baseQ then (baseQ, baseP) else (baseP, baseQ)
+  go p q g''
+    | p == q    = generate_pq g'' len
+    | otherwise = return (p, q, g'')
 
-large_random_prime :: CryptoRandomGen g => g -> Int -> (Integer, g)
-large_random_prime g len = (prime, g''')
+large_random_prime :: CryptoRandomGen g => g -> Int -> Either GenError (Integer, g)
+large_random_prime g len = do
+  ([startH, startT], g') <- random8s g 2
+  (startMids, g'')       <- random8s g' (len - 2)
+  let start_ls           = [startH .|. 0xc0] ++ startMids ++ [startT .|. 1]
+  let start              = os2ip $ BS.pack start_ls
+  (prime, g''')          <- find_next_prime g'' start
+  return (prime, g''')
+
+random8s :: CryptoRandomGen g => g -> Int -> Either GenError ([Word8], g)
+random8s g 0 = return ([], g)
+random8s g x = do
+  (rest, g') <- random8s g (x - 1)
+  (next8, g'') <- crandom g'
+  return (next8:rest, g'')
+
+find_next_prime :: CryptoRandomGen g => g -> Integer -> Either GenError (Integer, g)
+find_next_prime g n = do
+  (got_a_prime, g') <- is_probably_prime g n
+  go got_a_prime g'
  where
-  ([startH, startT], g') = random8s g 2
-  (startMids, g'')       = random8s g' (len - 2)
-  start_ls               = [startH .|. 0xc0] ++ startMids ++ [startT .|. 1]
-  start                  = os2ip $ BS.pack start_ls
-  (prime, g''')          = find_next_prime g'' start 
-  
-random8s :: CryptoRandomGen g => g -> Int -> ([Word8], g)
-random8s g 0 = ([], g)
-random8s g x = 
-  let (rest, g') = random8s g (x - 1)
-      (next8, g'') = throwLeft (crandom g')
-  in (next8:rest, g'')
+  go got_a_prime g'
+    | even n             = error "Even number sent to find_next_prime"
+    | n `mod` 65537 == 1 = find_next_prime g (n + 2)
+    | got_a_prime        = return (n, g')
+    | otherwise          = find_next_prime g' (n + 2)
 
-find_next_prime :: CryptoRandomGen g => g -> Integer -> (Integer, g)
-find_next_prime g n
-  | even n             = error "Even number sent to find_next_prime"
-  | n `mod` 65537 == 1 = find_next_prime g (n + 2)
-  | got_a_prime        = (n, g')
-  | otherwise          = find_next_prime g' (n + 2)
- where
-  (got_a_prime, g') = is_probably_prime g n
-
-is_probably_prime :: CryptoRandomGen g => g -> Integer -> (Bool, g)
+is_probably_prime :: CryptoRandomGen g => g -> Integer -> Either GenError (Bool, g)
 is_probably_prime !g !n 
-  | any (\ x -> n `mod` x == 0) small_primes = (False, g)
+  | any (\ x -> n `mod` x == 0) small_primes = return (False, g)
   | otherwise                                = miller_rabin g n 20
  where
   small_primes = [   2,    3,    5,    7,   11,   13,   17,   19,   23,   29,
@@ -650,15 +706,18 @@ is_probably_prime !g !n
                    877,  881,  883,  887,  907,  911,  919,  929,  937,  941,
                    947,  953,  967,  971,  977,  983,  991,  997, 1009, 1013  ]
 
-miller_rabin :: CryptoRandomGen g => g -> Integer -> Int -> (Bool, g)
-miller_rabin g _ 0             = (True, g)
-miller_rabin g n k | test a n  = (False, g')
-                   | otherwise = miller_rabin g' n (k - 1)
+miller_rabin :: CryptoRandomGen g => g -> Integer -> Int -> Either GenError (Bool, g)
+miller_rabin g _ 0             = return (True, g)
+miller_rabin g n k = do
+  (a, g') <- crandomR (2, n - 2) g
+  go a g'
  where
-  (a, g') = throwLeft (crandomR (2, n - 2) g)
+  go a g'
+    | test a n  = return (False, g')
+    | otherwise = miller_rabin g' n (k - 1)
   base_b = tail $ reverse $ toBinary (n - 1) 
   -- 
-  test a' n' = pow base_b a
+  test a n' = pow base_b a
    where
     pow   _  1 = False
     pow  []  _ = True 
@@ -666,7 +725,7 @@ miller_rabin g n k | test a n  = (False, g')
      where
       pow' _          !d1 !d2 | d2==1 && d1 /= (n'-1) = True
       pow' (False:ys)   _ !d2                         = pow ys d2
-      pow' (True :ys)   _ !d2                         = pow ys $ (d2*a')`mod`n'
+      pow' (True :ys)   _ !d2                         = pow ys $ (d2*a)`mod`n'
       pow' _            _   _                         = error "bad case"
   -- 
   toBinary 0 = []
@@ -699,3 +758,7 @@ gcde a b | d < 0     = (-d, -x, -y)
     | r2 == 0   = (r1, x1, y1)
     | otherwise = let (q, r) = r1 `divMod` r2
                   in gcd_f (r2, x2, y2) (r, x1 - (q * x2), y1 - (q * y2))
+
+fmapL :: (a -> b) -> Either a c -> Either b c
+fmapL f (Left x) = Left (f x)
+fmapL _ (Right x) = Right x
