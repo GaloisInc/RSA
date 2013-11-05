@@ -30,6 +30,7 @@ module Codec.Crypto.RSA(
        , rsaes_pkcs1_v1_5_encrypt 
        , rsaes_pkcs1_v1_5_encrypt_safe
        , rsaes_pkcs1_v1_5_decrypt 
+       , rsaes_pkcs1_v1_5_decrypt_safe
        , rsassa_pkcs1_v1_5_sign
        , rsassa_pkcs1_v1_5_verify
        -- * Hashing algorithm declarations for use in RSA functions
@@ -404,10 +405,13 @@ rsaes_pkcs1_v1_5_encrypt_safe k m rGen
 -- where k is the length of the key modulus in bytes.
 --
 rsaes_pkcs1_v1_5_decrypt :: PrivateKey -> ByteString -> ByteString
-rsaes_pkcs1_v1_5_decrypt k c 
-  | wrong_size   = error "message size incorrect"
-  | signal_error = error "decryption error"
-  | otherwise    = m
+rsaes_pkcs1_v1_5_decrypt k = throwLeft . rsaes_pkcs1_v1_5_decrypt_safe k
+
+rsaes_pkcs1_v1_5_decrypt_safe :: PrivateKey -> ByteString -> Either Error ByteString
+rsaes_pkcs1_v1_5_decrypt_safe k c
+  | wrong_size   = Left MessageLengthError
+  | signal_error = Left MessageDecryptError
+  | otherwise    = Right m
  where
   mLen = fromIntegral $ BS.length c
   kLen = private_size k
