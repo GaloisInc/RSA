@@ -1,198 +1,18 @@
-{-# LANGUAGE FlexibleInstances #-}
-import Codec.Crypto.RSA
+import Codec.Crypto.RSA.Pure
 import Control.Monad
-import Data.ByteString(pack)
+import Data.Binary
+import qualified Data.ByteString as BSS
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
+import qualified Data.Digest.Pure.MD5 as MD5
 import Data.Digest.Pure.SHA
-import Data.Tagged
 import Test.QuickCheck
 import Crypto.Random
 import Crypto.Random.DRBG
-import Crypto.Types
-import Crypto.Types.PubKey.RSA
+import Crypto.Types.PubKey.RSA hiding (KeyPair)
 
-import Test.Framework (defaultMain, testGroup, Test)
+import Test.Framework (defaultMain, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
-
--- --------------------------------------------------------------------------
-
-buildGen :: Gen (GenAutoReseed HashDRBG HashDRBG)
-buildGen = do
-  let len = genSeedLength :: Tagged (GenAutoReseed HashDRBG HashDRBG) ByteLength
-  bytes <- pack `fmap` replicateM (unTagged len) arbitrary
-  let Right seed = newGen bytes
-  return seed
-
-instance Show (GenAutoReseed HashDRBG HashDRBG) where
-  show _ = "<randomGen>"
-
-instance Arbitrary (GenAutoReseed HashDRBG HashDRBG) where
-  arbitrary = buildGen
-
--- --------------------------------------------------------------------------
-
-data KeyPair     = KP1K PublicKey PrivateKey
- deriving (Show)
-
-data KeyPair2048 = KP2K PublicKey PrivateKey
- deriving (Show)
-
-instance Arbitrary KeyPair where
-  arbitrary   = do g <- buildGen
-                   let (pub, priv, _) = generateKeyPair g 1024
-                   return $ KP1K pub priv
-
-instance Arbitrary KeyPair2048 where
-  arbitrary   = do g <- buildGen
-                   let (pub, priv, _) = generateKeyPair g 2048
-                   return $ KP2K pub priv
-
--- --------------------------------------------------------------------------
-
-newtype LargePrime = LP Integer
-
-instance Show LargePrime where
-  show (LP x) = show x
-
-instance Arbitrary LargePrime where
-  arbitrary   = do g <- buildGen
-                   let (res, _) = large_random_prime g 64
-                   return (LP res)
-
--- --------------------------------------------------------------------------
-
-newtype PositiveInteger = PI Integer
-
-instance Show PositiveInteger where
-  show (PI x) = show x
-
-instance Arbitrary PositiveInteger where
-  arbitrary   = (PI . (+1) . abs) `fmap` arbitrary
-
--- --------------------------------------------------------------------------
-
-newtype NonEmptyByteString = NEBS ByteString
-
-instance Show NonEmptyByteString where
-  show (NEBS x) = show x
-
-instance Arbitrary ByteString where
-  arbitrary   = BS.pack `fmap` arbitrary
-
-instance Arbitrary NonEmptyByteString where
-  arbitrary   = (NEBS . BS.pack) `fmap` (return(:)`ap`arbitrary`ap`arbitrary)
-
--- --------------------------------------------------------------------------
-
-instance Arbitrary EncryptionOptions where
-  arbitrary   = arbitrary >>= \ lbl -> elements [
-                  UsePKCS1_v1_5
-                , UseOAEP sha1'   (generate_MGF1 sha1') lbl
-                , UseOAEP sha256' (generate_MGF1 sha256') lbl
-                , UseOAEP sha384' (generate_MGF1 sha384') lbl
-                , UseOAEP sha512' (generate_MGF1 sha512') lbl
-                ]
-   where
-    sha1'   = bytestringDigest . sha1
-    sha256' = bytestringDigest . sha256
-    sha384' = bytestringDigest . sha384
-    sha512' = bytestringDigest . sha512
-
-instance Show HashInfo where
-  show h = "<hash: len=" ++ (show $ BS.length $ hashFunction h BS.empty) ++ ">"
-
-instance Arbitrary HashInfo where
-  arbitrary   = elements [ha_SHA1, ha_SHA256, ha_SHA384, ha_SHA512]
-
--- --------------------------------------------------------------------------
-
-prop_chunkify_works :: NonEmptyByteString -> PositiveInteger -> Bool
-prop_chunkify_works (NEBS x) (PI l) =
-  all (\ bs -> BS.length bs <= (fromIntegral l)) (chunkify (fromIntegral l) x)
-
-prop_mod_exp_works :: PositiveInteger -> PositiveInteger -> PositiveInteger ->
-                      Bool
-prop_mod_exp_works (PI b) (PI e) (PI m) =
-  ((b ^ e) `mod` m) == (modular_exponentiation b e m)
-
-prop_mod_inv_works :: LargePrime -> LargePrime -> Bool
-prop_mod_inv_works (LP p) (LP q) = (e * d) `mod` phi == 1
- where 
-  e   = 65537
-  phi = (p - 1) * (q - 1)
-  d   = modular_inverse e phi
-
--- --------------------------------------------------------------------------
-
-prop_i2o2i_identity :: PositiveInteger -> Bool
-prop_i2o2i_identity (PI x) = x == (os2ip $ i2osp x 16)
-
-prop_o2i2o_identity :: NonEmptyByteString -> Bool
-prop_o2i2o_identity (NEBS x) = x == (i2osp (os2ip x) (fromIntegral $ BS.length x))
-
-prop_ep_dp_identity :: KeyPair -> PositiveInteger -> Bool
-prop_ep_dp_identity (KP1K pub priv) (PI x) = m == m'
- where
-  n  = public_n pub
-  e  = public_e pub
-  d  = private_d priv
-  m  = x `mod` n
-  m' = rsa_dp n d $ rsa_ep n e m
-
-prop_sp_vp_identity :: KeyPair -> PositiveInteger -> Bool
-prop_sp_vp_identity (KP1K pub priv) (PI x) = m == m'
- where
-  n  = public_n pub
-  e  = public_e pub
-  d  = private_d priv
-  m  = x `mod` n
-  m' = rsa_vp1 n e $ rsa_sp1 n d m
-
--- --------------------------------------------------------------------------
-
-prop_oaep_inverts :: GenAutoReseed HashDRBG HashDRBG ->
-                     HashInfo -> KeyPair2048 -> PositiveInteger ->
-                     ByteString -> NonEmptyByteString -> 
-                     Bool
-prop_oaep_inverts g hi (KP2K pub priv) (PI seed) l (NEBS x) = m == m'
- where
-  hash  = hashFunction hi
-  kLen  = public_size pub
-  hLen  = BS.length $ hash BS.empty
-  mgf   = generate_MGF1 hash
-  m     = BS.take (fromIntegral kLen - (2 * hLen) - 2) x
-  (c,_) = rsaes_oaep_encrypt g hash mgf pub  l m
-  m'    = rsaes_oaep_decrypt   hash mgf priv l c
-
-prop_pkcs_inverts :: CryptoRandomGen g => g -> KeyPair -> NonEmptyByteString -> Bool
-prop_pkcs_inverts g (KP1K pub priv) (NEBS x) = m == m'
- where
-  kLen  = fromIntegral $ public_size pub
-  m     = BS.take (kLen - 11) x
-  (c,_) = rsaes_pkcs1_v1_5_encrypt g pub  m
-  m'    = rsaes_pkcs1_v1_5_decrypt   priv c
-
-prop_sign_works :: HashInfo -> KeyPair -> NonEmptyByteString -> Bool
-prop_sign_works hi (KP1K pub priv) (NEBS m) = 
-  rsassa_pkcs1_v1_5_verify hi pub m $ rsassa_pkcs1_v1_5_sign hi priv m
-
--- --------------------------------------------------------------------------
-
-prop_encrypt_inverts :: CryptoRandomGen g => 
-                        g -> KeyPair2048 -> NonEmptyByteString -> 
-                        Bool
-prop_encrypt_inverts g (KP2K pub priv) (NEBS m) =
-  m == decrypt priv (fst $ encrypt g pub m)
-
-prop_encrypt_plus_inverts :: CryptoRandomGen g =>
-                             g -> EncryptionOptions -> KeyPair2048 -> 
-                             NonEmptyByteString ->
-                             Bool
-prop_encrypt_plus_inverts g opts (KP2K pub priv) (NEBS m) =
-  m == decrypt' opts priv (fst $ encrypt' opts g pub m)
-
--- --------------------------------------------------------------------------
 
 main :: IO ()
 main = do
@@ -200,30 +20,238 @@ main = do
   putStrLn "This test suite takes a very long time to run. If you're in a "
   putStrLn "hurry, Control-C is your friend."
   putStrLn "WARNING WARNING WARNING\n"
-
-  g <- newGenIO :: IO SystemRandom
-  defaultMain $ tests g
-
-tests :: SystemRandom -> [Test]
-tests g = [
-  testGroup "Testing basic helper functions" [
-     testProperty "prop_chunkify_works"         prop_chunkify_works,
-     testProperty "prop_mod_exp_works"          prop_mod_exp_works,
-     testProperty "prop_mod_inv_works"          prop_mod_inv_works
-     ],
-  testGroup "Testing RSA core functions" [
-    testProperty "prop_i2o2i_identity"         prop_i2o2i_identity,
-    testProperty "prop_o2i2o_identity"         prop_o2i2o_identity,
-    testProperty "prop_ep_dp_identity"         prop_ep_dp_identity,
-    testProperty "prop_sp_vp_identity"         prop_sp_vp_identity
-    ],
-  testGroup "Testing fixed-width RSA padding functions" [
-    testProperty "prop_oaep_inverts"           prop_oaep_inverts,
-    testProperty "prop_pkcs_inverts"         $ prop_pkcs_inverts g,
-    testProperty "prop_sign_works"             prop_sign_works
-    ],
-  testGroup "Testing top-level functions" [
-    testProperty "prop_encrypt_inverts"      $ prop_encrypt_inverts      g,
-    testProperty "prop_encrypt_plus_inverts" $ prop_encrypt_plus_inverts g
+  g :: GenAutoReseed HashDRBG HashDRBG <- newGenIO
+  defaultMain
+    [ testGroup "Random functions" [
+        testProperty "RandomBS generates the right length" (prop_randomBSLen g)
+      , testProperty "RandomNZBS generates good data" (prop_randomNZBS g)
+      ]
+    , testGroup "Testing basic helper functions" [
+        testProperty "ByteString chunking works"    prop_chunkifyWorks
+      , testProperty "Modular exponentiation works" prop_modExpWorks
+      , testProperty "Modular inversion works"      prop_modInvWorks
+      ]
+    , testGroup "Testing RSA core functions" [
+        testProperty "Can roundtrip from Integer to BS and back" prop_i2o2iIdent
+      , testProperty "Can roundtrip from BS to Integer and back" prop_o2i2oIdent
+      , testProperty "Can roundtrip RSA's EP and DP functions"   prop_epDpIdent
+      , testProperty "Can roundtrip RSA's SP and VP functions"   prop_spVpIdent
+      ]
+    , testGroup "Testing fixed-width RSA functions" [
+        testProperty "RSA PKCS sign/verify works"     prop_pkcsSignVerifies
+      , testProperty "RSA PKCS encrypt/decrypt works" (prop_pkcsInverts g)
+      , testProperty "RSA OAEP encrypt/decrypt works" (prop_oaepInverts g)
+      ]
+    , testGroup "Testing top-level, arbitrary-width RSA functions" [
+        testProperty "Checking encrypt/decrypt roundtrips" (prop_encDec g)
+      , testProperty "Checking OAEP encrypt/decrypt roundtrips" (prop_encDecO g)
+      , testProperty "Checking PKCS encrypt/decrypt roundtrips" (prop_encDecP g)
+      , testProperty "Checking verify verifies sign" propSignVerifies
+      ]
+    , testGroup "Testing top-level, arbitrary-width RSA functions" [
+        testProperty "Checking encrypt/decrypt roundtrips" (prop_encDec g)
+      , testProperty "Checking OAEP encrypt/decrypt roundtrips" (prop_encDecO g)
+      , testProperty "Checking PKCS encrypt/decrypt roundtrips" (prop_encDecP g)
+      , testProperty "Checking verify verifies sign" propSignVerifies
+      ]
     ]
-  ]
+
+-- --------------------------------------------------------------------------
+
+instance Arbitrary ByteString where
+    arbitrary = BS.pack `fmap` arbitrary
+
+instance Show HashInfo where
+  show (HashInfo ident _)
+    | ident == algorithmIdent hashMD5    = "<MD5>"
+    | ident == algorithmIdent hashSHA1   = "<SHA1>"
+    | ident == algorithmIdent hashSHA256 = "<SHA256>"
+    | ident == algorithmIdent hashSHA384 = "<SHA384>"
+    | ident == algorithmIdent hashSHA512 = "<SHA512>"
+    | otherwise                          = "<unknownHASH>"
+
+instance Arbitrary HashInfo where
+  arbitrary = elements [hashMD5, hashSHA1, hashSHA256, hashSHA384, hashSHA512]
+
+newtype LargePrime = LP Integer
+  deriving (Show)
+
+instance Arbitrary LargePrime where
+  arbitrary =
+    do Right (g :: HashDRBG) <- (newGen . BSS.pack) `fmap` replicateM 4096 arbitrary
+       case largeRandomPrime g 64 of
+         Left _ -> fail "Large prime generation failure."
+         Right (i, _) -> return (LP i)
+
+data KeyPair = KP PublicKey PrivateKey
+ deriving (Show)
+
+instance Arbitrary KeyPair where
+  arbitrary =
+    do keySize <- elements [128,256,512,1024,2048,4096]
+       Right (g :: HashDRBG) <- (newGen . BSS.pack) `fmap` replicateM 4096 arbitrary
+       case generateKeyPair g keySize of
+         Left _ -> fail "Random key generation failure."
+         Right (pub, priv, _) -> return (KP pub priv)
+
+data HashFun = HF String (ByteString -> ByteString)
+
+instance Show HashFun where
+  show (HF s _) = "<" ++ s ++ ">"
+
+instance Arbitrary HashFun where
+  arbitrary = elements [HF "MD5" (encode . MD5.md5),
+                        HF "SHA1" (bytestringDigest . sha1),
+                        HF "SHA256" (bytestringDigest . sha256),
+                        HF "SHA384" (bytestringDigest . sha384),
+                        HF "SHA512" (bytestringDigest . sha512)]
+
+prop_randomBSLen :: CryptoRandomGen g => g -> Positive Word16 -> Bool
+prop_randomBSLen g x =
+  case randomBS g (fromIntegral (getPositive x)) of
+    Left _ -> False
+    Right (bstr, _) -> fromIntegral (BS.length bstr) == getPositive x
+
+prop_randomNZBS :: CryptoRandomGen g => g -> Positive Word16 -> Bool
+prop_randomNZBS g x =
+  case randomNZBS g (fromIntegral (getPositive x)) of
+    Left _ -> False
+    Right (bstr, _) ->
+      (fromIntegral (BS.length bstr) == getPositive x) && BS.all (/= 0) bstr
+
+prop_chunkifyWorks :: ByteString -> Positive Integer -> Bool
+prop_chunkifyWorks x l = all (\ bs -> BS.length bs <= l') chunks &&
+                         (sum (map BS.length chunks) == BS.length x)
+ where
+  l' = fromIntegral (getPositive l)
+  chunks = chunkify x (fromIntegral l')
+
+prop_modExpWorks :: Positive Integer -> Positive Integer -> Positive Integer ->
+                    Bool
+prop_modExpWorks b e m = ((b' ^ e') `mod` m') == modular_exponentiation b' e' m'
+ where
+  b' = getPositive b
+  e' = getPositive e
+  m' = getPositive m
+
+prop_modInvWorks :: LargePrime -> LargePrime -> Bool
+prop_modInvWorks (LP p) (LP q) = (e * d) `mod` phi == 1
+ where 
+  e   = 65537
+  phi = (p - 1) * (q - 1)
+  d   = modular_inverse e phi
+
+prop_i2o2iIdent :: Positive Integer -> Bool
+prop_i2o2iIdent px =
+  case i2osp x l of
+    Left _ -> False
+    Right x' -> os2ip x' == x
+ where
+  x = getPositive px
+  l = findLen 1 256
+  --
+  findLen b t | t > x     = b
+              | otherwise = findLen (b + 1) (t * 256)
+
+prop_o2i2oIdent :: ByteString -> Bool
+prop_o2i2oIdent bs =
+  case i2osp (os2ip bs) (fromIntegral (BS.length bs)) of
+    Left _    -> False
+    Right bs' -> bs == bs'
+
+prop_epDpIdent :: KeyPair -> Positive Integer -> Bool
+prop_epDpIdent (KP pub priv) x = fromEither $
+  do let n = public_n pub
+         e = public_e pub
+         d = private_d priv
+         m = getPositive x `mod` n
+     ep <- rsa_ep n e m
+     m' <- rsa_dp n d ep
+     return (m == m')
+
+prop_spVpIdent :: KeyPair -> Positive Integer -> Bool
+prop_spVpIdent (KP pub priv) x = fromEither $
+  do let n = public_n pub
+         e = public_e pub
+         d = private_d priv
+         m = getPositive x `mod` n
+     sp <- rsa_sp1 n d m
+     m' <- rsa_vp1 n e sp
+     return (m == m')
+
+prop_oaepInverts :: CryptoRandomGen g =>
+                    g ->
+                    HashFun -> KeyPair ->
+                    ByteString -> ByteString ->
+                    Property
+prop_oaepInverts g (HF _ hash) (KP pub priv) l m = wellSized ==> fromEither $
+  do let mgf = generateMGF1 hash
+     (enc,_) <- rsaes_oaep_encrypt g hash mgf pub l m
+     m'      <- rsaes_oaep_decrypt hash mgf priv l enc
+     return (m == m')
+ where
+  hashLength = fromIntegral (BS.length (hash BS.empty))
+  keySize    = public_size pub
+  msgLength  = fromIntegral (BS.length m)
+  wellSized  = (msgLength <= (keySize - (2 * hashLength) - 2)) && (msgLength>0)
+
+prop_pkcsInverts :: CryptoRandomGen g =>
+                    g -> KeyPair -> ByteString ->
+                    Property
+prop_pkcsInverts g (KP pub priv) m = wellSized ==> fromEither $
+  do (enc,_) <- rsaes_pkcs1_v1_5_encrypt g pub m
+     m'      <- rsaes_pkcs1_v1_5_decrypt priv enc
+     return (m == m')
+ where
+  wellSized = (fromIntegral (BS.length m) < (public_size pub - 11)) &&
+              (BS.length m > 0)
+
+prop_pkcsSignVerifies :: HashInfo -> KeyPair -> ByteString -> Property
+prop_pkcsSignVerifies hash (KP pub priv) m = wellSized ==> fromEither $
+  do sig <- rsassa_pkcs1_v1_5_sign hash priv m
+     rsassa_pkcs1_v1_5_verify hash pub m sig
+ where
+  wellSized = fromIntegral (public_size pub) > (algSize + hashLen + 1)
+  algSize   = BS.length (algorithmIdent hash)
+  hashLen   = BS.length (hashFunction hash BS.empty)
+
+prop_encDec :: CryptoRandomGen g => g -> KeyPair -> ByteString -> Property
+prop_encDec g (KP pub priv) m = wellSized ==> fromEither $
+  do (c, _) <- encrypt g pub m
+     m' <- decrypt priv c
+     return (m == m')
+ where wellSized = public_size pub > 66
+
+prop_encDecO :: CryptoRandomGen g =>
+                g -> HashFun -> KeyPair -> ByteString -> ByteString ->
+                Property
+prop_encDecO g (HF _ hash) (KP pub priv) l m = wellSized ==> fromEither $
+  do (c, _) <- encryptOAEP g hash (generateMGF1 hash) l pub m
+     m' <- decryptOAEP hash (generateMGF1 hash) l priv c
+     return (m == m')
+ where
+  hashLength = fromIntegral (BS.length (hash BS.empty))
+  keySize    = public_size pub
+  wellSized  = (keySize - (2 * hashLength) - 2) > 0
+
+prop_encDecP :: CryptoRandomGen g =>
+                g -> KeyPair -> ByteString ->
+                Property
+prop_encDecP g (KP pub priv) m = wellSized ==> fromEither $
+  do (c, _) <- encryptPKCS g pub m
+     m' <- decryptPKCS priv c
+     return (m == m')
+ where
+  wellSized = public_size pub > 11
+
+propSignVerifies :: KeyPair -> ByteString -> Property
+propSignVerifies (KP pub priv) m = wellSized ==> fromEither $
+  do sig <- sign priv m
+     verify pub m sig
+ where wellSized = public_size pub >= 64
+
+-- --------------------------------------------------------------------------
+
+fromEither :: Either a Bool -> Bool
+fromEither (Left _) = False
+fromEither (Right res) = res
