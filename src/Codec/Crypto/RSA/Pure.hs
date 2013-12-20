@@ -149,9 +149,9 @@ sign = rsassa_pkcs1_v1_5_sign hashSHA256
 -- |Verify a signature for the given ByteString, using the SHA25 algorithm in
 -- the computation. Again, if you'd like to use a different algorithm, use the
 -- rsassa_pkcs1_v1_5_verify function.
-verify :: PublicKey -> -- ^The key of the signer
-          ByteString -> -- ^The message
-          ByteString -> -- ^The purported signature
+verify :: PublicKey {- ^The key of the signer -} ->
+          ByteString {- ^The message -} ->
+          ByteString {- ^The purported signature -} ->
           Either RSAError Bool
 verify = rsassa_pkcs1_v1_5_verify hashSHA256
 
@@ -175,11 +175,11 @@ encrypt g k m = encryptOAEP g sha256' (generateMGF1 sha256') BS.empty k m
 -- and we suggest 1024 as a lower bound.)
 encryptOAEP :: CryptoRandomGen g =>
                g ->
-               (ByteString -> ByteString) -> -- ^The hash function to use
-               MGF -> -- ^The mask generation function to use
-               ByteString -> -- ^An optional label to include
-               PublicKey -> -- ^The public key to encrypt with
-               ByteString -> -- ^The message to encrypt
+               (ByteString -> ByteString) {- ^The hash function to use -} ->
+               MGF {- ^The mask generation function to use -} ->
+               ByteString {- ^An optional label to include -} ->
+               PublicKey {- ^The public key to encrypt with -} ->
+               ByteString {- ^The message to encrypt -} ->
                Either RSAError (ByteString, g)
 encryptOAEP g hash mgf l k m =
   do unless ((keySize - (2 * hashLength) - 2) > 0) $ Left RSAKeySizeTooSmall
@@ -223,11 +223,11 @@ decrypt k m = decryptOAEP sha256' (generateMGF1 sha256') BS.empty k m
 
 -- |Decrypt an arbitrarily-sized message using OAEP encoding. This is the
 -- encouraged encoding for doing RSA encryption.
-decryptOAEP :: (ByteString -> ByteString) -> -- ^The hash function to use
-               MGF -> -- ^The mask generation function to use
-               ByteString -> -- ^An optional label to include
-               PrivateKey -> -- ^The public key to encrypt with
-               ByteString -> -- ^The message to decrypt
+decryptOAEP :: (ByteString -> ByteString) {- ^The hash function to use -} ->
+               MGF {- ^The mask generation function to use -} ->
+               ByteString {- ^An optional label to include -} ->
+               PrivateKey {- ^The public key to encrypt with -} ->
+               ByteString {- ^The message to decrypt -} ->
                Either RSAError ByteString
 decryptOAEP hash mgf l k m =
   do let chunks = chunkify m (fromIntegral (private_size k))
@@ -248,9 +248,9 @@ decryptPKCS k m =
 -- |Chunk an aribitrarily-sized message into a series of chunks that can be
 -- encrypted by an OAEP encryption / decryption function.
 chunkBSForOAEP :: RSAKey k =>
-                  k -> -- ^The key being used
-                  (ByteString -> ByteString) -> -- ^The hash function in use
-                  ByteString -> -- ^The ByteString to chunk
+                  k {- ^The key being used -} ->
+                  (ByteString -> ByteString) {- ^The hash function in use -} ->
+                  ByteString {- ^The ByteString to chunk -} ->
                   [ByteString]
 chunkBSForOAEP k hash bs = chunkify bs chunkSize
  where
@@ -286,12 +286,12 @@ chunkify bs size
 --
 rsaes_oaep_encrypt :: CryptoRandomGen g =>
                       g ->
-                      (ByteString -> ByteString) -> -- ^The hash function to use
-                      MGF -> -- ^An appropriate mask genereation function
-                      PublicKey -> -- ^The recipient's public key
-                      ByteString -> -- ^A label to associate with the message
-                                    -- (feel free to use BS.empty)
-                      ByteString -> -- ^The message to encrypt
+                      (ByteString->ByteString) {-^The hash function to use-} ->
+                      MGF {- ^An appropriate mask genereation function -} ->
+                      PublicKey {- ^The recipient's public key -} ->
+                      ByteString {- ^A label to associate with the message
+                                    (feel free to use BS.empty) -} ->
+                      ByteString {- ^The message to encrypt -} ->
                       Either RSAError (ByteString, g)
 rsaes_oaep_encrypt g hash mgf k l m =
   do let hashLength = fromIntegral (BS.length (hash BS.empty))
@@ -332,13 +332,13 @@ rsaes_oaep_encrypt g hash mgf k l m =
 -- Finally, there are any number of internal situations that may generate
 -- an error indicating that decryption failed.
 --
-rsaes_oaep_decrypt :: (ByteString -> ByteString) -> -- ^The hash function to use
-                      MGF -> -- ^A mask generation function
-                      PrivateKey -> -- ^The private key to use
-                      ByteString -> -- ^An optional label whose
-                                      -- association with the message
-                                      -- should be verified.
-                      ByteString   -> -- ^The ciphertext to decrypt
+rsaes_oaep_decrypt :: (ByteString->ByteString) {-^The hash function to use-} ->
+                      MGF {- ^A mask generation function -} ->
+                      PrivateKey {- ^The private key to use -} ->
+                      ByteString {- ^An optional label whose
+                                     association with the message
+                                     should be verified. -} ->
+                      ByteString {- ^The ciphertext to decrypt -} ->
                       Either RSAError ByteString
 rsaes_oaep_decrypt hash mgf k l c =
   do let hashLength = BS.length (hash BS.empty)
@@ -452,9 +452,9 @@ rsaes_pkcs1_v1_5_decrypt k c =
 --   * for MD5, SHA1, and SHA256, use 512+ bit keys
 --   * for SHA384 and SHA512, use 1024+ bit keys
 --
-rsassa_pkcs1_v1_5_sign :: HashInfo -> -- ^The hash function to use
-                          PrivateKey -> -- ^The private key to sign with
-                          ByteString -> -- ^The message to sign
+rsassa_pkcs1_v1_5_sign :: HashInfo {- ^The hash function to use -} ->
+                          PrivateKey {- ^The private key to sign with -} ->
+                          ByteString {- ^The message to sign -} ->
                           Either RSAError ByteString -- ^ The signature
 rsassa_pkcs1_v1_5_sign hi k m =
   do em  <- emsa_pkcs1_v1_5_encode hi m (private_size k) -- Step 1
@@ -466,10 +466,10 @@ rsassa_pkcs1_v1_5_sign hi k m =
 -- |Validate a signature for the given message using the given public key. The
 -- signature must be exactly k bytes long, where k is the size of the RSA
 -- modulus IN BYTES.
-rsassa_pkcs1_v1_5_verify :: HashInfo -> -- ^The hash function to use
-                            PublicKey -> -- ^The public key to validate against
-                            ByteString -> -- ^The message that was signed
-                            ByteString -> -- ^The purported signature
+rsassa_pkcs1_v1_5_verify :: HashInfo {- ^The hash function to use -} ->
+                            PublicKey {-^The public key to validate against-} ->
+                            ByteString {- ^The message that was signed -} ->
+                            ByteString {- ^The purported signature -} ->
                             Either RSAError Bool
 rsassa_pkcs1_v1_5_verify hi k m s
   | BS.length s /= fromIntegral (public_size k)  = Left RSAIncorrectSigSize
@@ -632,8 +632,8 @@ findNextPrime g n
 -- checking some obvious factors and then defaulting to the Miller-Rabin
 -- test. Should save time for numbers that are trivially composite.
 isProbablyPrime :: CryptoRandomGen g =>
-                   g ->       -- ^a good random number generator
-                   Integer -> -- ^the number to test
+                   g {- ^a good random number generator -} ->
+                   Integer {- ^the number to test -} ->
                    Either RSAError (Bool, g)
 isProbablyPrime g n
   | n < 541                                  = Right (n `elem` small_primes, g)
@@ -668,9 +668,9 @@ small_primes = [
 -- |Probabilistically test whether or not a given number is prime using
 -- the Miller-Rabin test.
 millerRabin :: CryptoRandomGen g =>
-               g ->       -- ^a good random number generator
-               Integer -> -- ^the number to test
-               Int ->     -- ^the accuracy of the test
+               g {- ^a good random number generator -} ->
+               Integer {- ^the number to test -} ->
+               Int {- ^the accuracy of the test -} ->
                Either RSAError (Bool, g)
 millerRabin g n k
   | n <= 0    = Left (RSAError "Primality test on negative number or 0.")
@@ -721,8 +721,8 @@ modular_exponentiation x y m = m_e_loop x y 1
 
 -- |Compute the modular inverse (d = e^-1 mod phi) via the extended euclidean
 -- algorithm.
-modular_inverse :: Integer -> -- ^e
-                   Integer -> -- ^phi
+modular_inverse :: Integer {- ^e -} ->
+                   Integer  {- ^phi -} ->
                    Integer
 modular_inverse e phi = x `mod` phi
  where (_, x, _) = extended_euclidean e phi
