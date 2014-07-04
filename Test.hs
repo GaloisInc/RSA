@@ -65,13 +65,15 @@ instance Show HashInfo where
   show (HashInfo ident _)
     | ident == algorithmIdent hashMD5    = "<MD5>"
     | ident == algorithmIdent hashSHA1   = "<SHA1>"
+    | ident == algorithmIdent hashSHA224 = "<SHA224>"
     | ident == algorithmIdent hashSHA256 = "<SHA256>"
     | ident == algorithmIdent hashSHA384 = "<SHA384>"
     | ident == algorithmIdent hashSHA512 = "<SHA512>"
     | otherwise                          = "<unknownHASH>"
 
 instance Arbitrary HashInfo where
-  arbitrary = elements [hashMD5, hashSHA1, hashSHA256, hashSHA384, hashSHA512]
+  arbitrary = elements [hashMD5, hashSHA1, hashSHA224,
+                       hashSHA256, hashSHA384, hashSHA512]
 
 newtype LargePrime = LP Integer
   deriving (Show)

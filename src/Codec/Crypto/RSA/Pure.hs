@@ -29,7 +29,8 @@ module Codec.Crypto.RSA.Pure(
        , rsassa_pkcs1_v1_5_sign
        , rsassa_pkcs1_v1_5_verify
        -- * Hashing algorithm declarations for use in RSA functions
-       , hashMD5, hashSHA1, hashSHA256, hashSHA384, hashSHA512
+       , hashMD5, hashSHA1
+       , hashSHA224, hashSHA256, hashSHA384, hashSHA512
        -- * Other mathematical functions that are handy for implementing
        -- other RSA primitives.
        , largeRandomPrime
@@ -753,6 +754,14 @@ hashSHA1 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x21,0x30,0x09,0x06,0x05,0x2b,0x0e,0x03,
                              0x02,0x1a,0x05,0x00,0x04,0x14]
  , hashFunction   = bytestringDigest . sha1
+ }
+
+hashSHA224 :: HashInfo
+hashSHA224 = HashInfo {
+   algorithmIdent = BS.pack [0x30,0x2d,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
+                             0x01,0x65,0x03,0x04,0x02,0x04,0x05,0x00,0x04,
+                             0x1c]
+ , hashFunction   = bytestringDigest . sha224
  }
 
 hashSHA256 :: HashInfo

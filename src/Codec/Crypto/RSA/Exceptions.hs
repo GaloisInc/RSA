@@ -27,7 +27,8 @@ module Codec.Crypto.RSA.Exceptions(
        , rsassa_pkcs1_v1_5_sign
        , rsassa_pkcs1_v1_5_verify
        -- * Hashing algorithm declarations for use in RSA functions
-       , hashMD5, hashSHA1, hashSHA256, hashSHA384, hashSHA512
+       , hashMD5, hashSHA1
+       , hashSHA224, hashSHA256, hashSHA384, hashSHA512
        -- * Other mathematical functions that are handy for implementing
        -- other RSA primitives.
        , largeRandomPrime
@@ -363,6 +364,9 @@ hashMD5 = Pure.hashMD5
 
 hashSHA1 :: HashInfo
 hashSHA1 = Pure.hashSHA1
+
+hashSHA224 :: HashInfo
+hashSHA224 = Pure.hashSHA224
 
 hashSHA256 :: HashInfo
 hashSHA256 = Pure.hashSHA256
