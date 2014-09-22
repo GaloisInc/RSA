@@ -2,8 +2,8 @@ module Codec.Crypto.RSA.Exceptions(
          RSAError(..)
        , HashInfo(..)
        -- * Keys and key generation
-       , PrivateKey
-       , PublicKey
+       , PrivateKey(..)
+       , PublicKey(..)
        , generateKeyPair
        -- * High-level encryption and signature functions
        , encrypt

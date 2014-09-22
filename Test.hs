@@ -9,7 +9,6 @@ import Data.Digest.Pure.SHA
 import Test.QuickCheck
 import Crypto.Random
 import Crypto.Random.DRBG
-import Crypto.Types.PubKey.RSA hiding (KeyPair)
 
 import Test.Framework (defaultMain, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
@@ -103,10 +102,10 @@ instance Show HashFun where
 
 instance Arbitrary HashFun where
   arbitrary = elements [HF "MD5" (encode . MD5.md5),
-                        HF "SHA1" (bytestringDigest . sha1),
-                        HF "SHA256" (bytestringDigest . sha256),
-                        HF "SHA384" (bytestringDigest . sha384),
-                        HF "SHA512" (bytestringDigest . sha512)]
+                        HF "SHA1" sha1,
+                        HF "SHA256" sha256,
+                        HF "SHA384" sha384,
+                        HF "SHA512" sha512]
 
 prop_randomBSLen :: CryptoRandomGen g => g -> Positive Word16 -> Bool
 prop_randomBSLen g x =

@@ -1,11 +1,11 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE MultiWayIf         #-}
 module Codec.Crypto.RSA.Pure(
          RSAError(..)
        , HashInfo(..)
        -- * Keys and key generation
-       , PrivateKey
-       , PublicKey
+       , PrivateKey(..)
+       , PublicKey(..)
        , generateKeyPair
        -- * High-level encryption and signature functions
        , encrypt
@@ -48,7 +48,6 @@ module Codec.Crypto.RSA.Pure(
 
 import Control.Exception
 import Control.Monad
-import Control.Monad.CryptoRandom
 import Crypto.Random
 import Crypto.Types.PubKey.RSA
 import Data.Binary
@@ -165,8 +164,7 @@ verify = rsassa_pkcs1_v1_5_verify hashSHA256
 encrypt :: CryptoRandomGen g =>
            g -> PublicKey -> ByteString ->
            Either RSAError (ByteString, g)
-encrypt g k m = encryptOAEP g sha256' (generateMGF1 sha256') BS.empty k m
- where sha256' = bytestringDigest . sha256
+encrypt g k m = encryptOAEP g sha256 (generateMGF1 sha256) BS.empty k m
 
 -- |Encrypt an arbitrarily-sized message using OAEP encoding. This is the
 -- encouraged encoding for doing RSA encryption. Note that your key size
@@ -219,8 +217,7 @@ mapM' g (x:rest) f =
 -- options. This is equivalent to calling encryptOAEP with SHA-256 as the
 -- hash function, MGF1(SHA-256) as the mask generation function, and no label.
 decrypt :: PrivateKey -> ByteString -> Either RSAError ByteString
-decrypt k m = decryptOAEP sha256' (generateMGF1 sha256') BS.empty k m
- where sha256' = bytestringDigest . sha256
+decrypt k m = decryptOAEP sha256 (generateMGF1 sha256) BS.empty k m
 
 -- |Decrypt an arbitrarily-sized message using OAEP encoding. This is the
 -- encouraged encoding for doing RSA encryption.
@@ -683,6 +680,7 @@ millerRabin g n k
      let (s, d) = oddify 0 (n - 1)
      in checkLoop g s d k
  where
+  generateSize = bitsize (n - 2) 8 `div` 8
   -- k times, pick a random integer in [2, n-2] and see if you can find
   -- a witness suggesting that it's not prime.
   checkLoop :: CryptoRandomGen g =>
@@ -690,13 +688,16 @@ millerRabin g n k
                Either RSAError (Bool, g)
   checkLoop g' _ _ 0 = Right (True, g')
   checkLoop g' s d c =
-    case crandomR (2, n - 2) g' of
+    case genBytes generateSize g' of
       Left e -> Left (RSAGenError e)
-      Right (a, g'') ->
-        case modular_exponentiation a d n of
-          1                -> checkLoop g'' s d (c - 1)
-          x | x == (n - 1) -> checkLoop g'' s d (c - 1)
-          x                -> checkWitnesses g'' s d x c (s - 1)
+      Right (bstr, g'') ->
+        let a = os2ip (BS.fromStrict bstr)
+            x = modular_exponentiation a d n
+        in if | (a < 2)       -> checkLoop g'' s d c
+              | (a > (n - 2)) -> checkLoop g'' s d c
+              | x == 1        -> checkLoop g'' s d (c - 1)
+              | x == (n - 1)  -> checkLoop g'' s d (c - 1)
+              | otherwise     -> checkWitnesses g'' s d x c (s - 1)
   -- s times, where n-1 = 2^s*d, check to see if the given number is a
   -- witness of something not being prime.
   checkWitnesses g'' _ _ _ _  0  = Right (False, g'')
@@ -708,17 +709,20 @@ millerRabin g n k
   -- given n, compute s and d such that 2^s*d = n.
   oddify s x | testBit x 0 = (s, x)
              | otherwise   = oddify (s + 1) (x `shiftR` 1)
+  -- given n, compute the number of bits required to hold it.
+  bitsize v x | (1 `shiftL` x) > v = x
+              | otherwise          = bitsize v (x + 8)
 
 -- |Computes a^b mod c using a moderately good algorithm.
 modular_exponentiation :: Integer -> Integer -> Integer -> Integer
 modular_exponentiation x y m = m_e_loop x y 1
  where
-  m_e_loop _   0 !result = result
-  m_e_loop !b !e !result = m_e_loop b' e' result'
+  m_e_loop _ 0 result = result
+  m_e_loop b e result = m_e_loop b' e' result'
    where
-    !b'      = (b * b) `mod` m
-    !e'      = e `shiftR` 1
-    !result' = if testBit e 0 then (result * b) `mod` m else result
+    b'      = (b * b) `mod` m
+    e'      = e `shiftR` 1
+    result' = if testBit e 0 then (result * b) `mod` m else result
 
 -- |Compute the modular inverse (d = e^-1 mod phi) via the extended euclidean
 -- algorithm.
@@ -753,7 +757,7 @@ hashSHA1 :: HashInfo
 hashSHA1 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x21,0x30,0x09,0x06,0x05,0x2b,0x0e,0x03,
                              0x02,0x1a,0x05,0x00,0x04,0x14]
- , hashFunction   = bytestringDigest . sha1
+ , hashFunction   = sha1
  }
 
 hashSHA224 :: HashInfo
@@ -761,7 +765,7 @@ hashSHA224 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x2d,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                              0x01,0x65,0x03,0x04,0x02,0x04,0x05,0x00,0x04,
                              0x1c]
- , hashFunction   = bytestringDigest . sha224
+ , hashFunction   = sha224
  }
 
 hashSHA256 :: HashInfo
@@ -769,7 +773,7 @@ hashSHA256 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                              0x01,0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,
                              0x20]
- , hashFunction   = bytestringDigest . sha256
+ , hashFunction   = sha256
  }
 
 hashSHA384 :: HashInfo
@@ -777,7 +781,7 @@ hashSHA384 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x41,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                              0x01,0x65,0x03,0x04,0x02,0x02,0x05,0x00,0x04,
                              0x30]
- , hashFunction   = bytestringDigest . sha384
+ , hashFunction   = sha384
  }
 
 hashSHA512 :: HashInfo
@@ -785,5 +789,5 @@ hashSHA512 = HashInfo {
    algorithmIdent  = BS.pack [0x30,0x51,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                               0x01,0x65,0x03,0x04,0x02,0x03,0x05,0x00,0x04,
                               0x40]
- , hashFunction   = bytestringDigest . sha512
+ , hashFunction   = sha512
  }

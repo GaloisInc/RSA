@@ -2,3 +2,5 @@
 *~
 /dist
 *.swp
+test-rsa.tix
+.hpc/
