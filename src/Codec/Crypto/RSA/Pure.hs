@@ -134,7 +134,7 @@ generateKeyPair g sizeBits = do
       e          = 65537
       d          = modular_inverse e phi
   let publicKey  = PublicKey keyLength n e
-      privateKey = PrivateKey publicKey d 0 0 0 0 0
+      privateKey = PrivateKey publicKey d p q 0 0 0
   return (publicKey, privateKey, g')
 
 -- ----------------------------------------------------------------------------
