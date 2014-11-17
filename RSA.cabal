@@ -19,13 +19,13 @@ description: This library implements the RSA encryption and signature
 
 Library
   hs-source-dirs:  src
-  build-depends:   base                >= 4.0  && < 7.0,
-                   binary              >  0.7  && < 1.0,
-                   bytestring          >  0.8  && < 0.12,
-                   crypto-api          >= 0.10 && < 0.14,
-                   crypto-pubkey-types >= 0.2  && < 0.6,
-                   pureMD5             >= 2.1  && < 2.3,
-                   SHA                 >= 2    && < 3
+  build-depends:   base                >= 4.0     && < 7.0,
+                   binary              >  0.7     && < 1.0,
+                   bytestring          >  0.8     && < 0.12,
+                   crypto-api          >= 0.10    && < 0.14,
+                   crypto-pubkey-types >= 0.2     && < 0.6,
+                   pureMD5             >= 2.1     && < 2.3,
+                   SHA                 >= 1.6.4.1 && < 2.0
   exposed-modules: Codec.Crypto.RSA,
                    Codec.Crypto.RSA.Exceptions,
                    Codec.Crypto.RSA.Pure
@@ -47,7 +47,7 @@ test-suite test-rsa
                   tagged                     >= 0.2     && < 0.9,
                   test-framework             >= 0.8.0.3 && < 0.10,
                   test-framework-quickcheck2 >= 0.3.0.2 && < 0.5,
-                  SHA                        >= 2       && < 3
+                  SHA                        >= 1.6.4.1 && < 2.0
   GHC-Options:    -Wall -fno-warn-orphans -fhpc
   extensions:     DeriveDataTypeable, MultiWayIf, ScopedTypeVariables
 

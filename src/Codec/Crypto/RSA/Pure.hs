@@ -164,7 +164,8 @@ verify = rsassa_pkcs1_v1_5_verify hashSHA256
 encrypt :: CryptoRandomGen g =>
            g -> PublicKey -> ByteString ->
            Either RSAError (ByteString, g)
-encrypt g k m = encryptOAEP g sha256 (generateMGF1 sha256) BS.empty k m
+encrypt g k m = encryptOAEP g sha256' (generateMGF1 sha256') BS.empty k m
+ where sha256' = bytestringDigest . sha256
 
 -- |Encrypt an arbitrarily-sized message using OAEP encoding. This is the
 -- encouraged encoding for doing RSA encryption. Note that your key size
@@ -217,7 +218,8 @@ mapM' g (x:rest) f =
 -- options. This is equivalent to calling encryptOAEP with SHA-256 as the
 -- hash function, MGF1(SHA-256) as the mask generation function, and no label.
 decrypt :: PrivateKey -> ByteString -> Either RSAError ByteString
-decrypt k m = decryptOAEP sha256 (generateMGF1 sha256) BS.empty k m
+decrypt k m = decryptOAEP sha256' (generateMGF1 sha256') BS.empty k m
+ where sha256' = bytestringDigest . sha256
 
 -- |Decrypt an arbitrarily-sized message using OAEP encoding. This is the
 -- encouraged encoding for doing RSA encryption.
@@ -757,7 +759,7 @@ hashSHA1 :: HashInfo
 hashSHA1 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x21,0x30,0x09,0x06,0x05,0x2b,0x0e,0x03,
                              0x02,0x1a,0x05,0x00,0x04,0x14]
- , hashFunction   = sha1
+ , hashFunction   = bytestringDigest . sha1
  }
 
 hashSHA224 :: HashInfo
@@ -765,7 +767,7 @@ hashSHA224 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x2d,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                              0x01,0x65,0x03,0x04,0x02,0x04,0x05,0x00,0x04,
                              0x1c]
- , hashFunction   = sha224
+ , hashFunction   = bytestringDigest . sha224
  }
 
 hashSHA256 :: HashInfo
@@ -773,7 +775,7 @@ hashSHA256 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                              0x01,0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,
                              0x20]
- , hashFunction   = sha256
+ , hashFunction   = bytestringDigest . sha256
  }
 
 hashSHA384 :: HashInfo
@@ -781,7 +783,7 @@ hashSHA384 = HashInfo {
    algorithmIdent = BS.pack [0x30,0x41,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                              0x01,0x65,0x03,0x04,0x02,0x02,0x05,0x00,0x04,
                              0x30]
- , hashFunction   = sha384
+ , hashFunction   = bytestringDigest . sha384
  }
 
 hashSHA512 :: HashInfo
@@ -789,5 +791,5 @@ hashSHA512 = HashInfo {
    algorithmIdent  = BS.pack [0x30,0x51,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,
                               0x01,0x65,0x03,0x04,0x02,0x03,0x05,0x00,0x04,
                               0x40]
- , hashFunction   = sha512
+ , hashFunction   = bytestringDigest . sha512
  }
