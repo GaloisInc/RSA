@@ -4,3 +4,5 @@
 *.swp
 test-rsa.tix
 .hpc/
+.cabal-sandbox
+cabal.sandbox.config

@@ -62,14 +62,6 @@ main = do
                      (prop_encDecP keys g)
       , testProperty "Checking verify verifies sign" (propSignVerifies keys)
       ]
-    , testGroup "Testing top-level, arbitrary-width RSA functions" [
-        testProperty "Checking encrypt/decrypt roundtrips" (prop_encDec keys g)
-      , testProperty "Checking OAEP encrypt/decrypt roundtrips"
-                     (prop_encDecO keys g)
-      , testProperty "Checking PKCS encrypt/decrypt roundtrips"
-                     (prop_encDecP keys g)
-      , testProperty "Checking verify verifies sign" (propSignVerifies keys)
-      ]
     ]
 
 buildRandomKeyPairs :: CryptoRandomGen g => g -> [Int] -> Int -> (KeyPairs, g)
