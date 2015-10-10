@@ -73,7 +73,7 @@ data RSAError = RSAError String
               | RSAIncorrectMsgSize
               | RSADecryptionError
               | RSAGenError GenError
- deriving (Show, Typeable)
+ deriving (Eq, Show, Typeable)
 
 instance Exception RSAError
 
@@ -325,7 +325,7 @@ rsaes_oaep_encrypt g hash mgf k l m =
 -- generate an error, represented by the Left constructor.
 --
 -- Futher, k (the length of the ciphertext in bytes) must be greater than or
--- equal to (2 * hLen + 2), where hLen is the length of the output of the 
+-- equal to (2 * hLen + 2), where hLen is the length of the output of the
 -- hash function in bytes. If this equation does not hold, a (different)
 -- error will be generated.
 --
@@ -345,7 +345,7 @@ rsaes_oaep_decrypt hash mgf k l c =
          keySize    = private_size k
      -- WARNING: Step 1a is missing!
      unless (BS.length c == fromIntegral keySize) $                -- Step 1b
-       Left RSADecryptionError 
+       Left RSADecryptionError
      unless (fromIntegral keySize >= ((2 * hashLength) + 2)) $     -- Step 1c
        Left RSADecryptionError
      let c_ip = os2ip c                                            -- Step 2a
@@ -417,7 +417,7 @@ rsaes_pkcs1_v1_5_decrypt k c =
      em   <- i2osp m_i (private_size k)                         -- Step 2c
      let (zt, ps_z_m) = BS.splitAt 2 em                         -- Step 3...
          (ps, z_m)    = BS.span (/= 0) ps_z_m
-         (z, m)       = BS.splitAt 1 z_m 
+         (z, m)       = BS.splitAt 1 z_m
      when (BS.unpack zt /= [0,2]) $ Left RSADecryptionError
      when (BS.unpack z  /= [0])   $ Left RSADecryptionError
      when (BS.length ps <  8 )    $ Left RSADecryptionError
@@ -483,17 +483,17 @@ rsassa_pkcs1_v1_5_verify hi k m s
 -- ----------------------------------------------------------------------------
 
 -- |A 'mask generation function'. The input is a bytestring, and the output
--- is a hash of the given length. Unless you know what you're doing, you 
+-- is a hash of the given length. Unless you know what you're doing, you
 -- should probably use a MGF1 formulation created with generate_MGF1.
 type MGF = ByteString -> Int64 -> Either RSAError ByteString
 
--- |Generate a mask generation function for the rsaes_oaep_*. As 
+-- |Generate a mask generation function for the rsaes_oaep_*. As
 -- suggested by the name, the generated function is an instance of the MGF1
--- function. The arguments are the underlying hash function to use and the 
+-- function. The arguments are the underlying hash function to use and the
 -- size of a hash in bytes.
 --
 -- The bytestring passed to the generated function cannot be longer than
--- 2^32 * hLen, where hLen is the passed length of the hash. 
+-- 2^32 * hLen, where hLen is the passed length of the hash.
 generateMGF1 :: (ByteString -> ByteString) -> MGF
 generateMGF1 hash mgfSeed maskLen
   | BS.length mgfSeed > ((2 ^ (32::Integer)) * hLen) = Left RSAMaskTooLong
@@ -573,7 +573,7 @@ divCeil a b = let (q, r) = divMod a b
               in if r /= 0 then (q + 1) else q
 
 -- Generate p and q. This is not necessarily the best way to do this, but it
--- appears to work. 
+-- appears to work.
 generatePQ :: CryptoRandomGen g =>
               g ->
               Int ->
@@ -677,7 +677,7 @@ millerRabin g n k
   | n == 1    = Right (False, g)
   | n == 2    = Right (True, g)
   | n == 3    = Right (True, g)
-  | otherwise = 
+  | otherwise =
      -- write (n-1) as 2^s*d with d odd by factoring powers of 2 from n-1
      let (s, d) = oddify 0 (n - 1)
      in checkLoop g s d k
