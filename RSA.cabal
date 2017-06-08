@@ -1,6 +1,6 @@
 name:       RSA
 category:   Cryptography, Codec
-version:    2.2.0
+version:    2.3.0
 license:    BSD3
 license-file: LICENSE
 author:     Adam Wick <awick@galois.com>
@@ -24,7 +24,6 @@ Library
                    bytestring          >  0.8     && < 0.12,
                    crypto-api          >= 0.10    && < 0.14,
                    crypto-pubkey-types >= 0.2     && < 0.6,
-                   pureMD5             >= 2.1     && < 2.3,
                    SHA                 >= 1.6.4.1 && < 2.0
   exposed-modules: Codec.Crypto.RSA,
                    Codec.Crypto.RSA.Exceptions,
@@ -42,7 +41,6 @@ test-suite test-rsa
                   crypto-api                 >= 0.10    && < 0.14,
                   crypto-pubkey-types        >= 0.4     && < 0.6,
                   DRBG                       >= 0.5.2   && < 0.7,
-                  pureMD5                    >= 2.1     && < 2.3,
                   QuickCheck                 >= 2.5     && < 3,
                   tagged                     >= 0.2     && < 0.9,
                   test-framework             >= 0.8.0.3 && < 0.10,

@@ -27,7 +27,7 @@ module Codec.Crypto.RSA.Exceptions(
        , rsassa_pkcs1_v1_5_sign
        , rsassa_pkcs1_v1_5_verify
        -- * Hashing algorithm declarations for use in RSA functions
-       , hashMD5, hashSHA1
+       , hashSHA1
        , hashSHA224, hashSHA256, hashSHA384, hashSHA512
        -- * Other mathematical functions that are handy for implementing
        -- other RSA primitives.
@@ -259,7 +259,7 @@ rsaes_pkcs1_v1_5_decrypt k c = throwLeft (Pure.rsaes_pkcs1_v1_5_decrypt k c)
 -- or 35.
 --
 -- Thus,
---   * for MD5, SHA1, and SHA256, use 512+ bit keys
+--   * for SHA1 and SHA256, use 512+ bit keys
 --   * for SHA384 and SHA512, use 1024+ bit keys
 --
 rsassa_pkcs1_v1_5_sign :: HashInfo {- ^The hash function to use -} ->
@@ -358,9 +358,6 @@ modular_inverse :: Integer {- ^e -} ->
 modular_inverse = Pure.modular_inverse
 
 -- ----------------------------------------------------------------------------
-
-hashMD5 :: HashInfo
-hashMD5 = Pure.hashMD5
 
 hashSHA1 :: HashInfo
 hashSHA1 = Pure.hashSHA1

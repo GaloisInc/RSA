@@ -4,7 +4,6 @@ import Data.Binary
 import qualified Data.ByteString as BSS
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
-import qualified Data.Digest.Pure.MD5 as MD5
 import Data.Digest.Pure.SHA
 import System.IO
 import Test.QuickCheck
@@ -81,7 +80,6 @@ instance Arbitrary ByteString where
 
 instance Show HashInfo where
   show (HashInfo ident _)
-    | ident == algorithmIdent hashMD5    = "<MD5>"
     | ident == algorithmIdent hashSHA1   = "<SHA1>"
     | ident == algorithmIdent hashSHA224 = "<SHA224>"
     | ident == algorithmIdent hashSHA256 = "<SHA256>"
@@ -90,7 +88,7 @@ instance Show HashInfo where
     | otherwise                          = "<unknownHASH>"
 
 instance Arbitrary HashInfo where
-  arbitrary = elements [hashMD5, hashSHA1, hashSHA224,
+  arbitrary = elements [hashSHA1, hashSHA224,
                        hashSHA256, hashSHA384, hashSHA512]
 
 newtype LargePrime = LP Integer
@@ -115,8 +113,7 @@ instance Show HashFun where
   show (HF s _) = "<" ++ s ++ ">"
 
 instance Arbitrary HashFun where
-  arbitrary = elements [HF "MD5" (encode . MD5.md5),
-                        HF "SHA1" (bytestringDigest . sha1),
+  arbitrary = elements [HF "SHA1" (bytestringDigest . sha1),
                         HF "SHA256" (bytestringDigest . sha256),
                         HF "SHA384" (bytestringDigest . sha384),
                         HF "SHA512" (bytestringDigest . sha512)]
