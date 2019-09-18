@@ -98,10 +98,10 @@ instance Arbitrary LargePrime where
   arbitrary =
     do seed <- BSS.pack `fmap` replicateM 4096 arbitrary
        case newGen seed of
-        Left _ -> fail "DRBG initialization error."
+        Left _ -> error "DRBG initialization error."
         Right (g :: HashDRBG) ->
           case largeRandomPrime g 64 of
-            Left _ -> fail "Large prime generation failure."
+            Left _ -> error "Large prime generation failure."
             Right (i, _) -> return (LP i)
 
 data KeyPairIdx = KPI Int
