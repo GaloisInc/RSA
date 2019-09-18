@@ -111,7 +111,7 @@ instance Binary PrivateKey where
               d   <- os2ip `fmap` getLazyByteString (fromIntegral (public_size pub))
               return (PrivateKey pub d 0 0 0 0 0)
 
-failOnError :: (Monad m, Show a) => Either a b -> m b
+failOnError :: (MonadFail m, Show a) => Either a b -> m b
 failOnError (Left e)  = fail (show e)
 failOnError (Right b) = return b
 
