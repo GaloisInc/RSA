@@ -112,7 +112,7 @@ instance Binary PrivateKey where
               return (PrivateKey pub d 0 0 0 0 0)
 
 failOnError :: (Monad m, Show a) => Either a b -> m b
-failOnError (Left e)  = fail (show e)
+failOnError (Left e)  = error (show e)
 failOnError (Right b) = return b
 
 -- ----------------------------------------------------------------------------
