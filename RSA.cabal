@@ -25,6 +25,8 @@ Library
                    crypto-api          >= 0.10    && < 0.14,
                    crypto-pubkey-types >= 0.2     && < 0.6,
                    SHA                 >= 1.6.4.1 && < 2.0
+  if impl(ghc < 8.0)
+    build-depends: cipher-aes128       < 0.7.0.4
   exposed-modules: Codec.Crypto.RSA,
                    Codec.Crypto.RSA.Exceptions,
                    Codec.Crypto.RSA.Pure
