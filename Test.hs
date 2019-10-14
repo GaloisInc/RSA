@@ -1,14 +1,12 @@
 import Codec.Crypto.RSA.Pure
 import Control.Monad
 import Data.Binary
-import qualified Data.ByteString as BSS
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
 import Data.Digest.Pure.SHA
 import System.IO
 import Test.QuickCheck
 import Crypto.Random
-import Crypto.Random.DRBG
 
 import Test.Framework (defaultMain, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
@@ -25,7 +23,7 @@ main :: IO ()
 main = do
   putStr   "Generating testing keys ... "
   hFlush   stdout
-  g :: GenAutoReseed HashDRBG HashDRBG <- newGenIO
+  g :: SystemRandom <- newGenIO
   let (keys, g') = buildRandomKeyPairs g (cycle keySizes) numRandomKeyPairs
   unless (all ((> 5) . public_n . fst) keys) $ fail "Something odd."
   putStrLn "done!"
@@ -37,7 +35,7 @@ main = do
     , testGroup "Testing basic helper functions" [
         testProperty "ByteString chunking works"    prop_chunkifyWorks
       , testProperty "Modular exponentiation works" prop_modExpWorks
-      , testProperty "Modular inversion works"      prop_modInvWorks
+      , testProperty "Modular inversion works"      (prop_modInvWorks g')
       ]
     , testGroup "Testing RSA core functions" [
         testProperty "Can roundtrip from Integer to BS and back" prop_i2o2iIdent
@@ -91,19 +89,6 @@ instance Arbitrary HashInfo where
   arbitrary = elements [hashSHA1, hashSHA224,
                        hashSHA256, hashSHA384, hashSHA512]
 
-newtype LargePrime = LP Integer
-  deriving (Show)
-
-instance Arbitrary LargePrime where
-  arbitrary =
-    do seed <- BSS.pack `fmap` replicateM 4096 arbitrary
-       case newGen seed of
-        Left _ -> fail "DRBG initialization error."
-        Right (g :: HashDRBG) ->
-          case largeRandomPrime g 64 of
-            Left _ -> fail "Large prime generation failure."
-            Right (i, _) -> return (LP i)
-
 data KeyPairIdx = KPI Int
  deriving (Show)
 
@@ -149,12 +134,22 @@ prop_modExpWorks b e m = ((b' ^ e') `mod` m') == modular_exponentiation b' e' m'
   e' = getPositive e
   m' = getPositive m
 
-prop_modInvWorks :: LargePrime -> LargePrime -> Bool
-prop_modInvWorks (LP p) (LP q) = (e * d) `mod` phi == 1
- where 
-  e   = 65537
-  phi = (p - 1) * (q - 1)
-  d   = modular_inverse e phi
+prop_modInvWorks :: CryptoRandomGen g => g -> Word16 -> Bool
+prop_modInvWorks g0 x =
+  let (p, g1) = primeGen (x `mod` 512) g0
+      (q, _)  = primeGen (x `mod` 512) g1
+      e       = 65537
+      phi     = (p - 1) * (q - 1)
+      d       = modular_inverse e phi
+  in (e * d) `mod` phi == 1
+ where
+  primeGen pre g =
+    case randomBS g (fromIntegral pre) of
+      Left e -> error ("Error prefetching bytestring:" ++ show e)
+      Right (_, g') ->
+        case largeRandomPrime g' 64 of
+          Left  _   -> error "Large prime generation failure."
+          Right res -> res
 
 prop_i2o2iIdent :: Positive Integer -> Bool
 prop_i2o2iIdent px =
