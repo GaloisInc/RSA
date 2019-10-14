@@ -43,7 +43,6 @@ test-suite test-rsa
                   bytestring                 >  0.8     && < 0.12,
                   crypto-api                 >= 0.10    && < 0.14,
                   crypto-pubkey-types        >= 0.4     && < 0.6,
-                  DRBG                       >= 0.5.2   && < 0.7,
                   QuickCheck                 >= 2.5     && < 3,
                   tagged                     >= 0.2     && < 0.9,
                   test-framework             >= 0.8.0.3 && < 0.10,
