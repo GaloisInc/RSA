@@ -43,9 +43,11 @@ test-suite test-rsa
                   bytestring                 >  0.8     && < 0.12,
                   crypto-api                 >= 0.10    && < 0.14,
                   crypto-pubkey-types        >= 0.4     && < 0.6,
+                  HUnit                      >= 1.2     && < 1.7,
                   QuickCheck                 >= 2.5     && < 3,
                   tagged                     >= 0.2     && < 0.9,
                   test-framework             >= 0.8.0.3 && < 0.10,
+                  test-framework-hunit       >= 0.3.0   && < 0.4,
                   test-framework-quickcheck2 >= 0.3.0.2 && < 0.5,
                   SHA                        >= 1.6.4.1 && < 2.0
   GHC-Options:    -Wall -fno-warn-orphans

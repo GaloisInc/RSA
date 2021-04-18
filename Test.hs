@@ -9,7 +9,9 @@ import Test.QuickCheck
 import Crypto.Random
 
 import Test.Framework (defaultMain, testGroup)
+import Test.Framework.Providers.HUnit (testCase)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
+import Test.HUnit.Base (Assertion, assertEqual)
 
 type KeyPairs = [(PublicKey, PrivateKey)]
 
