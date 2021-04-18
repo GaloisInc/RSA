@@ -3,6 +3,7 @@ import Control.Monad
 import Data.Binary
 import Data.ByteString.Lazy(ByteString)
 import qualified Data.ByteString.Lazy as BS
+import qualified Data.ByteString.Lazy.Char8 as BSC
 import Data.Digest.Pure.SHA
 import System.IO
 import Test.QuickCheck
@@ -60,6 +61,9 @@ main = do
       , testProperty "Checking PKCS encrypt/decrypt roundtrips"
                      (prop_encDecP keys g)
       , testProperty "Checking verify verifies sign" (propSignVerifies keys)
+      ]
+    , testGroup "Fixed Test Vectors" [
+        testCase "GitHub Bug #19 / Implicit Null Allowance" githubBug19
       ]
     ]
 
@@ -284,6 +288,44 @@ findKeySized size kps idx =
   in if public_size pub >= size
        then pair
        else findKeySized size kps ((idx + 1) `mod` length kps)
+
+-- --------------------------------------------------------------------------
+
+githubBug19 :: Assertion
+githubBug19 =
+  do -- just to make sure we're in the right universe
+     assertEqual "Signing computation sane" (Right s) (rsa_sp1 n d i)
+     -- make sure it works just as a normal computation
+     let Right basicSig = rsassa_pkcs1_v1_5_sign hashSHA256 priv m
+     assertEqual "Basic signing works" (Right True) (rsassa_pkcs1_v1_5_verify hashSHA256 pub m basicSig)
+     -- check the provided signature, too
+     let Right customSig = rsassa_pkcs1_v1_5_sign customHash priv m
+     assertEqual "Custom signing scheme works" s_bytes customSig
+     assertEqual "Provided signature works" (Right True) (rsassa_pkcs1_v1_5_verify customHash pub m s_bytes)
+ where
+  n = 0xE932AC92252F585B3A80A4DD76A897C8B7652952FE788F6EC8DD640587A1EE5647670A8AD4C2BE0F9FA6E49C605ADF77B5174230AF7BD50E5D6D6D6D28CCF0A886A514CC72E51D209CC772A52EF419F6A953F3135929588EBE9B351FCA61CED78F346FE00DBB6306E5C2A4C6DFC3779AF85AB417371CF34D8387B9B30AE46D7A5FF5A655B8D8455F1B94AE736989D60A6F2FD5CADBFFBD504C5A756A2E6BB5CECC13BCA7503F6DF8B52ACE5C410997E98809DB4DC30D943DE4E812A47553DCE54844A78E36401D13F77DC650619FED88D8B3926E3D8E319C80C744779AC5D6ABE252896950917476ECE5E8FC27D5F053D6018D91B502C4787558A002B9283DA7
+  d = 0x009b771db6c374e59227006de8f9c5ba85cf98c63754505f9f30939803afc1498eda44b1b1e32c7eb51519edbd9591ea4fce0f8175ca528e09939e48f37088a07059c36332f74368c06884f718c9f8114f1b8d4cb790c63b09d46778bfdc41348fb4cd9feab3d24204992c6dd9ea824fbca591cd64cf68a233ad0526775c9848fafa31528177e1f8df9181a8b945081106fd58bd3d73799b229575c4f3b29101a03ee1f05472b3615784d9244ce0ed639c77e8e212ab52abddf4a928224b6b6f74b7114786dd6071bd9113d7870c6b52c0bc8b9c102cfe321dac357e030ed6c580040ca41c13d6b4967811807ef2a225983ea9f88d67faa42620f42a4f5bdbe03b
+  e = 3
+  m = BSC.pack "hello world!"
+  i = 0x0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff00302f300b060960864801650304020104207509e5bda0c762d2bac7f90d758b5b2263fa01ccbc542ab5e3df163be08e6ca9
+  s = 0xa0073057133ff3758e7e111b4d7441f1d8cbe4b2dd5ee4316a14264290dee5ed7f175716639bd9bb43a14e4f9fcb9e84dedd35e2205caac04828b2c053f68176d971ea88534dd2eeec903043c3469fc69c206b2a8694fd262488441ed8852280c3d4994e9d42bd1d575c7024095f1a20665925c2175e089c0d731471f6cc145404edf5559fd2276e45e448086f71c78d0cc6628fad394a34e51e8c10bc39bfe09ed2f5f742cc68bee899d0a41e4c75b7b80afd1c321d89ccd9fe8197c44624d91cc935dfa48de3c201099b5b417be748aef29248527e8bbb173cab76b48478d4177b338fe1f1244e64d7d23f07add560d5ad50b68d6649a49d7bc3db686daaa7
+  Right s_bytes = i2osp s 256
+  customHash = HashInfo {
+    algorithmIdent = BS.pack [
+      0x30,0x2f,0x30,0x0b,0x06,0x09,0x60,0x86,
+      0x48,0x01,0x65,0x03,0x04,0x02,0x01,0x04,
+      0x20
+    ],
+    hashFunction = bytestringDigest . sha256
+  }
+  pub = PublicKey { public_size = 256, public_n = n, public_e = e }
+  priv = PrivateKey {
+    private_pub = pub,
+    private_d = d,
+    private_p = 0, private_q = 0,
+    private_dP = 0, private_dQ = 0,
+    private_qinv = 0
+  }
 
 -- --------------------------------------------------------------------------
 
